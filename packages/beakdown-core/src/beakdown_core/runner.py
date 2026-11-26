@@ -1,5 +1,7 @@
 from time import perf_counter
+
 import duckdb
+
 from .arrow_extractor import extract
 from .models import PipelineSpec
 

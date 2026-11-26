@@ -1,7 +1,7 @@
 import pytest
+from beakdown_core.arrow_extractor import MAX_BYTES
 from beakdown_core.models import PipelineSpec
 from beakdown_core.runner import run_pipeline
-from beakdown_core.arrow_extractor import MAX_BYTES
 
 
 def pipeline(query="SELECT * FROM range(100) t(id)"):

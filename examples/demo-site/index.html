@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  /><title>Fieldwork — demo workspace</title
+  ><style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font: 16px system-ui;
+      margin: 0;
+      color: #22384b;
+      background: #f5f7fa;
+    }
+    nav {
+      position: fixed;
+      inset: 0 auto 0 0;
+      width: 230px;
+      background: #183749;
+      color: #e9f3f5;
+      padding: 30px;
+    }
+    nav h1 {
+      font-size: 24px;
+      margin: 0 0 45px;
+    }
+    nav a {
+      display: block;
+      padding: 14px;
+      color: inherit;
+      text-decoration: none;
+      border-radius: 8px;
+    }
+    nav a:hover,
+    nav a.active {
+      background: #315263;
+    }
+    main {
+      margin-left: 230px;
+      padding: 44px 55px;
+      max-width: 1300px;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 38px;
+    }
+    h2 {
+      font-size: 32px;
+      letter-spacing: -1px;
+    }
+    small,
+    p {
+      color: #637887;
+    }
+    button {
+      font: inherit;
+      padding: 12px 20px;
+      border: 0;
+      border-radius: 7px;
+      background: #1f766b;
+      color: white;
+      cursor: pointer;
+    }
+    .stats {
+      display: flex;
+      gap: 20px;
+    }
+    .stats article {
+      padding: 25px;
+      background: white;
+      border: 1px solid #dce4e8;
+      border-radius: 12px;
+      flex: 1;
+    }
+    .stats b {
+      display: block;
+      font-size: 36px;
+      margin: 12px 0;
+    }
+    .panel {
+      margin-top: 28px;
+      border: 1px solid #dce4e8;
+      border-radius: 12px;
+      background: white;
+      padding: 26px;
+    }
+    table {
+      width: 100%;
+      text-align: left;
+      border-collapse: collapse;
+    }
+    td,
+    th {
+      padding: 18px 10px;
+      border-bottom: 1px solid #e8edf0;
+      font-size: 14px;
+    }
+    th {
+      color: #637887;
+      font-weight: 500;
+    }
+    .tag {
+      background: #e5f2ee;
+      color: #296351;
+      padding: 5px 9px;
+      border-radius: 5px;
+      font-size: 12px;
+    }
+    label {
+      display: block;
+      margin: 20px 0;
+    }
+    input {
+      display: block;
+      padding: 12px;
+      border: 1px solid #c9d5dd;
+      border-radius: 6px;
+      min-width: 320px;
+      margin-top: 8px;
+    }
+    .notice {
+      background: #e5effa;
+      padding: 16px;
+      border-radius: 8px;
+    }
+    .demo {
+      font-size: 12px;
+      margin-top: 50px;
+      color: #93b2c1;
+    }
+  </style>
+  <nav>
+    <h1>Fieldwork</h1>
+    <a href="#overview">Overview</a><a href="#projects">Projects</a
+    ><a href="#settings">Settings</a>
+    <div class="demo">Local demonstration app<br />Fictional records</div>
+  </nav>
+  <main id="app"></main>
+  <script>
+    const projects = [
+      ["Website refresh", "Design", "In progress", "Maya Chen"],
+      ["Customer portal", "Build", "In progress", "Leo Tan"],
+      ["Mobile onboarding", "Research", "Planned", "Sam Park"],
+    ];
+    const table = () =>
+      "<table><thead><tr><th>Project</th><th>Phase</th><th>Status</th><th>Owner</th></tr></thead><tbody>" +
+      projects
+        .map(
+          (p) =>
+            "<tr>" +
+            p
+              .map(
+                (v, i) =>
+                  "<td>" +
+                  (i === 2 ? '<span class="tag">' + v + "</span>" : v) +
+                  "</td>",
+              )
+              .join("") +
+            "</tr>",
+        )
+        .join("") +
+      "</tbody></table>";
+    function render() {
+      const route = location.hash.slice(1) || "overview";
+      document
+        .querySelectorAll("nav a")
+        .forEach((a) => a.classList.toggle("active", a.hash === "#" + route));
+      document.getElementById("app").innerHTML =
+        route === "settings"
+          ? '<header><div><small>Workspace</small><h2>Settings</h2></div></header><section class="panel"><h3>Workspace details</h3><label>Workspace name<input value="Fieldwork Studio"></label><label>Contact email<input value="hello@example.test" type="email"></label><button id="save">Save changes</button><p id="saved" role="status"></p></section>'
+          : route === "projects"
+            ? '<header><div><small>Workspace</small><h2>Projects</h2></div><button id="new">New project</button></header><p class="notice">Projects move through research, design and build.</p><section class="panel">' +
+              table() +
+              "</section>"
+            : '<header><div><small>Tuesday, November 26 · Demo workspace</small><h2>A little clarity for the work ahead.</h2><p>Here is what is moving across your studio.</p></div><button id="view">View projects</button></header><section class="stats"><article>Active projects<b>3</b><small>Across two delivery teams</small></article><article>Tasks this week<b>18</b><small>12 completed · 6 remaining</small></article><article>Next milestone<b>Fri 29</b><small>Customer portal review</small></article></section><section class="panel"><h3>Recent projects</h3>' +
+              table() +
+              "</section>";
+      document
+        .getElementById("view")
+        ?.addEventListener("click", () => (location.hash = "projects"));
+      document
+        .getElementById("save")
+        ?.addEventListener(
+          "click",
+          () =>
+            (document.getElementById("saved").textContent =
+              "Workspace changes saved for this demo."),
+        );
+      document
+        .getElementById("new")
+        ?.addEventListener(
+          "click",
+          () =>
+            (document.querySelector(".notice").textContent =
+              "Project creation is outside this demo."),
+        );
+    }
+    window.addEventListener("hashchange", render);
+    render();
+  </script>
+</html>

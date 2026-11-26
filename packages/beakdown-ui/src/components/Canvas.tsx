@@ -17,14 +17,12 @@ export default function Canvas({
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
-  const nodes = session.pipeline.nodes
-    .slice(0, step + 1)
-    .map((n, i) => ({
-      id: n.id,
-      type: "peeker",
-      position: { x: mobile ? 0 : i * 500, y: mobile ? i * 450 : (i % 2) * 70 },
-      data: { node: n },
-    }));
+  const nodes = session.pipeline.nodes.slice(0, step + 1).map((n, i) => ({
+    id: n.id,
+    type: "peeker",
+    position: { x: mobile ? 0 : i * 500, y: mobile ? i * 450 : (i % 2) * 70 },
+    data: { node: n },
+  }));
   const ids = new Set(nodes.map((n) => n.id));
   return (
     <ReactFlow

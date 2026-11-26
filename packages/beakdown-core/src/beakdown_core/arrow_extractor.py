@@ -1,5 +1,7 @@
 import json
+
 import pyarrow as pa
+
 from .models import ColumnSchema, NodePreview
 
 MAX_BYTES = 100_000

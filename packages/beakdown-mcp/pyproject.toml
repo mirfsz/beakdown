@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 dependencies = ["beakdown-core", "mcp>=1.20,<2"]
 [project.scripts]
 beakdown-mcp = "beakdown_mcp.server:main"
+beakdown-review = "beakdown_mcp.cli:main"
 [tool.uv.sources]
 beakdown-core = {workspace = true}
 [build-system]

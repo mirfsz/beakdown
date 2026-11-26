@@ -14,3 +14,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: uv run pytest
+      - name: Install browser for investigation smoke test
+        run: uv run --with playwright playwright install --with-deps chromium
+      - name: Verify investigation in browser
+        run: uv run --with playwright python tests/browser_smoke.py
+        env:
+          BEAKDOWN_BROWSER: chromium

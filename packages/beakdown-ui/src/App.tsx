@@ -3,14 +3,12 @@ import Canvas from "./components/Canvas";
 import TimeScrubber from "./components/TimeScrubber";
 import ApproveBar from "./components/ApproveBar";
 import { loadArrow } from "./lib/arrow_loader";
-import type { Session } from "./types";
+import type { AnySession } from "./types";
+import InvestigationView from "./investigation/InvestigationView";
+import { credentialsForTab } from "./lib/credentials";
 export default function App() {
-  const [credentials] = useState(() => {
-    const h = new URLSearchParams(location.hash.slice(1));
-    history.replaceState(null, "", location.pathname);
-    return { id: h.get("session"), token: h.get("token") };
-  });
-  const [session, setSession] = useState<Session>();
+  const [credentials] = useState(credentialsForTab);
+  const [session, setSession] = useState<AnySession>();
   const [step, setStep] = useState(99);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -49,7 +47,12 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
-    if (session?.state !== "ready") return;
+    if (
+      !session ||
+      session.kind === "investigation" ||
+      session.state !== "ready"
+    )
+      return;
     let active = true;
     Promise.all(
       session.pipeline.nodes.map(async (n) => {
@@ -106,9 +109,20 @@ export default function App() {
   if (!session)
     return (
       <main className="empty">
-        <h1>Opening your pipeline…</h1>
+        <h1>Opening your inspection…</h1>
         <p role="alert">{error}</p>
       </main>
+    );
+  if (session.kind === "investigation")
+    return (
+      <InvestigationView
+        session={session}
+        base={base}
+        token={credentials.token!}
+        busy={busy}
+        error={error}
+        action={action}
+      />
     );
   const current = Math.min(step, session.pipeline.nodes.length - 1);
   return (

@@ -1,15 +1,21 @@
 import asyncio
+import io
+import json
 import secrets
 import socket
 import threading
 import time
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+import uvicorn
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import uvicorn
+
+from .investigation import Investigation
 from .models import PipelineSpec
 from .runner import run_pipeline
 
@@ -25,6 +31,24 @@ class Session:
         self.lock = threading.RLock()
         self.expires = time.monotonic() + 3600
         self.allowed_paths = allowed_paths
+
+
+class InvestigationSession:
+    def __init__(self, investigation, assets):
+        self.token = secrets.token_urlsafe(32)
+        self.investigation = investigation
+        self.assets = assets
+        self.state = "ready"
+        self.error = None
+        self.revision = 0
+        self.lock = threading.RLock()
+        self.expires = time.monotonic() + 3600
+
+
+class FindingReview(BaseModel):
+    revision: int
+    review: str = "unreviewed"
+    reviewer_note: str = ""
 
 
 class Edit(BaseModel):
@@ -56,6 +80,8 @@ class SessionManager:
         self.thread.start()
 
     def authorize(self, sid, token):
+        if not isinstance(token, str):
+            raise HTTPException(401, "Invalid session credentials")
         session = self.sessions.get(sid)
         if not session or not secrets.compare_digest(token or "", session.token):
             raise HTTPException(401, "Invalid session credentials")
@@ -88,9 +114,34 @@ class SessionManager:
             "url": f"http://127.0.0.1:{self.port}/#session={pipeline.pipeline_id}&token={session.token}",
         }
 
+    def create_investigation(self, investigation: Investigation, assets):
+        for sid, old in list(self.sessions.items()):
+            if time.monotonic() > old.expires:
+                self.sessions.pop(sid, None)
+        if len(self.sessions) >= 32:
+            raise ValueError("Session capacity reached; sessions expire after one hour")
+        session = InvestigationSession(investigation, assets)
+        sid = investigation.investigation_id
+        self.sessions[sid] = session
+        return {
+            "session_id": sid,
+            "token": session.token,
+            "url": f"http://127.0.0.1:{self.port}/#session={sid}&token={session.token}",
+        }
+
     def result(self, session):
         with session.lock:
+            if isinstance(session, InvestigationSession):
+                return {
+                    "kind": "investigation",
+                    "state": session.state,
+                    "error": session.error,
+                    "revision": session.revision,
+                    "approved": session.investigation.status == "approved",
+                    "investigation": session.investigation.model_dump(mode="json"),
+                }
             return {
+                "kind": "pipeline",
                 "state": session.state,
                 "error": session.error,
                 "revision": session.revision,
@@ -126,6 +177,8 @@ class SessionManager:
         @app.get("/api/session/{sid}/arrow/{node}")
         def arrow(sid: str, node: str, request: Request):
             session = auth(sid, request)
+            if isinstance(session, InvestigationSession):
+                raise HTTPException(404, "This session has no table previews")
             if node not in session.arrows:
                 raise HTTPException(404, "Preview unavailable")
             return Response(
@@ -136,6 +189,10 @@ class SessionManager:
         def edit(sid: str, body: Edit, request: Request):
             session = auth(sid, request)
             with session.lock:
+                if isinstance(session, InvestigationSession):
+                    raise HTTPException(
+                        409, "SQL editing is only available for pipeline sessions"
+                    )
                 if (
                     session.state != "ready"
                     or session.pipeline.status != "pending_approval"
@@ -153,21 +210,112 @@ class SessionManager:
                 self.pool.submit(self.compute, session, pipeline)
             return self.result(session)
 
+        @app.get("/api/session/{sid}/assets/{image_id}")
+        def asset(sid: str, image_id: str, request: Request):
+            session = auth(sid, request)
+            if (
+                not isinstance(session, InvestigationSession)
+                or image_id not in session.assets
+            ):
+                raise HTTPException(404, "Screenshot not found")
+            return Response(session.assets[image_id], media_type="image/webp")
+
+        @app.post("/api/session/{sid}/findings/{finding_id}/review")
+        def review_finding(
+            sid: str, finding_id: str, body: FindingReview, request: Request
+        ):
+            session = auth(sid, request)
+            if not isinstance(session, InvestigationSession):
+                raise HTTPException(404)
+            with session.lock:
+                if (
+                    body.revision != session.revision
+                    or session.investigation.status != "pending_approval"
+                ):
+                    raise HTTPException(409, "Report changed or already decided")
+                if (
+                    body.review not in ("unreviewed", "confirmed", "disputed")
+                    or len(body.reviewer_note) > 5000
+                ):
+                    raise HTTPException(
+                        422, "Invalid review or note exceeds 5000 characters"
+                    )
+                finding = next(
+                    (f for f in session.investigation.findings if f.id == finding_id),
+                    None,
+                )
+                if finding is None:
+                    raise HTTPException(404, "Finding not found")
+                finding.review, finding.reviewer_note = body.review, body.reviewer_note
+                session.revision += 1
+            return self.result(session)
+
+        @app.get("/api/session/{sid}/export")
+        def export(sid: str, request: Request):
+            session = auth(sid, request)
+            if not isinstance(session, InvestigationSession):
+                raise HTTPException(404)
+            with session.lock:
+                buffer = io.BytesIO()
+                report = self.result(session)
+                report["format_version"] = 1
+                # Assets use normalized, content-addressed names, never caller paths.
+                with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+                    archive.writestr("report.json", json.dumps(report, indent=2))
+                    for image_id, data in session.assets.items():
+                        archive.writestr(f"screenshots/{image_id}.webp", data)
+                    document = session.investigation
+                    lines = [
+                        f"# {document.title}",
+                        "",
+                        document.summary,
+                        "",
+                        "## Findings",
+                        "",
+                    ]
+                    for finding in document.findings:
+                        lines.extend(
+                            [
+                                f"### {finding.title}",
+                                f"{finding.confidence} · {finding.review}",
+                                "",
+                                finding.detail,
+                                "",
+                                f"Evidence: {', '.join(finding.evidence_ids) or 'No additional evidence cited'}",
+                                f"Reviewer: {finding.reviewer_note}",
+                                "",
+                            ]
+                        )
+                    lines.extend(
+                        ["## Limitations", *[f"- {v}" for v in document.limitations]]
+                    )
+                    archive.writestr("report.md", "\n".join(lines))
+                return Response(
+                    buffer.getvalue(),
+                    media_type="application/zip",
+                    headers={
+                        "Content-Disposition": 'attachment; filename="beakdown-report.zip"'
+                    },
+                )
+
         @app.post("/api/session/{sid}/{action}")
         def decide(sid: str, action: str, body: Decision, request: Request):
             session = auth(sid, request)
             if action not in ("approve", "reject"):
                 raise HTTPException(404)
             with session.lock:
+                document = (
+                    session.investigation
+                    if isinstance(session, InvestigationSession)
+                    else session.pipeline
+                )
                 if (
                     session.state != "ready"
                     or body.revision != session.revision
-                    or session.pipeline.status != "pending_approval"
+                    or document.status != "pending_approval"
                 ):
                     raise HTTPException(409, "Session changed or already decided")
-                session.pipeline.status = (
-                    "approved" if action == "approve" else "rejected"
-                )
+                document.status = "approved" if action == "approve" else "rejected"
                 session.revision += 1
             return self.result(session)
 
@@ -179,6 +327,9 @@ class SessionManager:
             await ws.accept()
             try:
                 credentials = await asyncio.wait_for(ws.receive_json(), 5)
+                if not isinstance(credentials, dict):
+                    await ws.close(code=1008)
+                    return
                 session = self.authorize(sid, credentials.get("token"))
                 while True:
                     self.authorize(sid, credentials.get("token"))

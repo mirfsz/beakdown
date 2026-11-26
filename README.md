@@ -1,10 +1,74 @@
 # 🦅 Beakdown
 
-**The open-source visual audit and time-travel canvas for AI agent data pipelines.**
+**An open-source visual review canvas for application investigations and AI agent data pipelines.**
 
 Give agent work a human checkpoint. Stage a SQL DAG, inspect bounded table previews, scrub through execution steps, edit queries, and approve the exact reviewed plan before the agent proceeds.
 
-Pair Beakdown with **REA** to understand applications: REA collects static and runtime evidence; Beakdown makes the agent's analysis pipeline and conclusions inspectable. This is an evidence review companion, not a promise to recover every application's implementation.
+Pair Beakdown with **REA** to break down an app or website into captured screens, connected journeys, annotated findings and evidence. The Beakdown skill guides the agent through capture and opens a browser workbench where you can inspect, confirm, dispute and export the findings.
+
+![Beakdown screenshot investigation](docs/investigation.png)
+
+## Break down an app or website
+
+1. Install [the Beakdown skill](skills/beakdown/SKILL.md) in your agent's skill directory and configure REA and Beakdown as MCP servers.
+2. Ask: **“Use Beakdown with REA to break down this website: https://your-site.example. Capture its key screens and explain the main journey.”**
+3. The agent uses REA to collect screenshots and supporting evidence, then calls `create_investigation_session`.
+4. Open the returned canvas. Select screens, enlarge captures, inspect numbered regions, filter observations/inferences/unknowns, and confirm or dispute findings with corrections.
+5. Approve the report or request another pass. The agent retrieves the reviewed findings with `get_session_result`.
+
+REA performs the capture; the skill orchestrates the tool calls. Beakdown imports and presents evidence. This is a working agent-guided workflow, not an unattended crawler or a promise to recover every application's implementation. The skill ships in this repository; installing it does not register MCP servers.
+
+### Screenshot investigation input
+
+After the quick-start installation below, call `create_investigation_session` with:
+
+```json
+{
+  "title": "Customer portal investigation",
+  "target": "https://your-site.example",
+  "summary": "What the agent learned, grounded in the captures.",
+  "screens": [
+    {
+      "id": "home",
+      "title": "Home screen",
+      "description": "The starting point of the inspected journey.",
+      "rea_evidence_path": "/absolute/path/to/rea-evidence.json",
+      "rea_evidence_id": "ev_exact_id_from_rea",
+      "capture_index": 0
+    }
+  ],
+  "findings": [
+    {
+      "id": "navigation",
+      "screen_id": "home",
+      "title": "Persistent workspace navigation",
+      "detail": "Replace this example with a conclusion supported by the actual capture.",
+      "confidence": "observed",
+      "category": "interface",
+      "evidence_ids": ["ev_exact_id_from_rea"],
+      "region": { "x": 0.01, "y": 0.1, "width": 0.15, "height": 0.3 }
+    }
+  ],
+  "connections": [],
+  "limitations": ["Only the captured routes and states were inspected."]
+}
+```
+
+A screen accepts exactly one absolute `rea_evidence_path` or `screenshot_path`. Supported REA formats: web screenshot Evidence, browser/Electron scenarios, and native UI scenarios. Raw records, MCP JSON envelopes, and exported bundles are accepted. Select bundle records using `rea_evidence_id`; `capture_index` counts captured screenshots, defaulting to the last capture. Other providers can import their local PNG/JPEG/WebP screenshot files. No target HTML or scripts execute in the workbench.
+
+For an agent without the new MCP tool loaded yet, save those arguments as an absolute JSON manifest and run:
+
+```sh
+uv run beakdown-review /absolute/path/to/investigation.json
+```
+
+This starts the local daemon, opens the canvas in your browser, and stays alive until Ctrl+C. Add `--no-open` to print the URL only. To install the skill for a compatible agent, copy `skills/beakdown` to its documented skill directory (for Codex, `~/.agents/skills/beakdown`); reconnect/restart if the client requires it.
+
+Screenshots are authenticated, validated and normalized to inert WebP. Complete evidence JSON imports are capped at 24 MB per file. Input limits are 8 MB and 20 megapixels per screenshot, 32 MB of normalized images per session, 50 screens and 300 findings. REA-provided image digests are verified; source IDs, operation, provider and capture limitations remain visible. Export report downloads a ZIP with Markdown, JSON and normalized screenshots, excluding session credentials. The export preserves the review; reopening exported ZIPs in the canvas is not implemented yet. Sessions still expire after one hour.
+
+Approval records the human's assessment. Disputed findings and reviewer notes are returned even when the overall report is approved; approval does not establish that every inference is true. Screenshots and source metadata may contain private content: keep evidence out of public repositories unless deliberately sharing it.
+
+For a reproducible local test target, serve `examples/demo-site`. It is a fictional app made for testing the capture workflow. The documentation screenshot shows actual REA captures of that demo, not an external product audit.
 
 ## Quick start
 
@@ -24,7 +88,12 @@ The MCP server uses stdio. Configure your agent with:
   "mcpServers": {
     "beakdown": {
       "command": "uv",
-      "args": ["--directory", "/absolute/path/to/beakdown", "run", "beakdown-mcp"]
+      "args": [
+        "--directory",
+        "/absolute/path/to/beakdown",
+        "run",
+        "beakdown-mcp"
+      ]
     }
   }
 }
@@ -36,10 +105,20 @@ Call `create_handoff_session`:
 {
   "title": "Inspect active customers",
   "nodes": [
-    {"id": "customers", "title": "Sample customers", "operation_type": "load", "sql_or_expr": "SELECT * FROM (VALUES (1, 'ACTIVE', 700), (2, 'INACTIVE', 20)) t(id, status, spend)"},
-    {"id": "buyers", "title": "Active top buyers", "operation_type": "filter", "sql_or_expr": "status = 'ACTIVE' AND spend > 500"}
+    {
+      "id": "customers",
+      "title": "Sample customers",
+      "operation_type": "load",
+      "sql_or_expr": "SELECT * FROM (VALUES (1, 'ACTIVE', 700), (2, 'INACTIVE', 20)) t(id, status, spend)"
+    },
+    {
+      "id": "buyers",
+      "title": "Active top buyers",
+      "operation_type": "filter",
+      "sql_or_expr": "status = 'ACTIVE' AND spend > 500"
+    }
   ],
-  "edges": [{"source": "customers", "target": "buyers"}]
+  "edges": [{ "source": "customers", "target": "buyers" }]
 }
 ```
 
@@ -56,14 +135,9 @@ Open the returned inspection URL. After approval, call `get_session_result` with
 - Sessions are in-memory, expire after one hour, and end with the MCP process. Capacity is 32 sessions; work uses two background threads. Creation queues execution without waiting for previews; first daemon startup has no strict 50 ms guarantee.
 - Edits recompute the full DAG. Revision checks prevent stale approvals. The timeline reveals ordered node results from the current execution; persisted execution history is not implemented.
 
-## REA companion workflow
+## Evidence and data investigations
 
-1. Use REA on an application you can inspect: browser/network captures, bundle analysis, native or managed inspection, and static/runtime correlation.
-2. Have the agent normalize relevant findings into SQL rows. Keep originals outside Beakdown and attach source references through node `evidence`.
-3. Build separate nodes for observations, joins, filters, and inferred conclusions. Record confidence and unresolved questions in evidence summaries.
-4. Inspect samples and queries in Beakdown. Review original artifacts before approving claims that a sample cannot establish.
-
-See [the runnable REA example](examples/rea_app_audit.py). This integration is agent-mediated: Beakdown does not automatically invoke REA, ingest its private formats, or render arbitrary HTML from findings. Sources appear as plain text.
+Use screenshot investigations for app/website analysis and `create_handoff_session` for SQL transformations. They share the authenticated local daemon and human approval lifecycle. The older [SQL REA example](examples/rea_app_audit.py) demonstrates evidence-linked tabular analysis; screenshot investigations need no DuckDB execution.
 
 ## Development
 
@@ -71,11 +145,13 @@ See [the runnable REA example](examples/rea_app_audit.py). This integration is a
 uv run pytest
 pnpm build
 pnpm dev
+# In another terminal, after a production build (requires Chrome):
+uv run --with playwright python tests/browser_smoke.py
 ```
 
 `pnpm dev` starts an isolated UI development server on a dynamic port. Use the built UI served by the daemon for authenticated end-to-end sessions.
 
-Monorepo packages: `beakdown-core` (schemas, DuckDB, Arrow, FastAPI), `beakdown-ui` (React Flow, Vite, Tailwind), and `beakdown-mcp` (MCP Python SDK v1 stdio). This initial release supports DuckDB SQL; Polars and persistent historical snapshots remain future work.
+Monorepo packages: `beakdown-core` (schemas, DuckDB, Arrow, FastAPI), `beakdown-ui` (React Flow, Vite, Tailwind), and `beakdown-mcp` (MCP Python SDK v1 stdio and the review CLI). This initial release supports DuckDB SQL; Polars and persistent historical snapshots remain future work.
 
 ## License
 

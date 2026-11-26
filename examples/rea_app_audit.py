@@ -1,6 +1,7 @@
 """Agent-mediated REA findings, using illustrative evidence rather than live capture."""
 
 import json
+
 from beakdown_mcp.tools import create_handoff_session
 
 if __name__ == "__main__":
