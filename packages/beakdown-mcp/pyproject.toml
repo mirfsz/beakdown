@@ -1,0 +1,14 @@
+[project]
+name = "beakdown-mcp"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["beakdown-core", "mcp>=1.20,<2"]
+[project.scripts]
+beakdown-mcp = "beakdown_mcp.server:main"
+[tool.uv.sources]
+beakdown-core = {workspace = true}
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+[tool.hatch.build.targets.wheel]
+packages = ["src/beakdown_mcp"]
