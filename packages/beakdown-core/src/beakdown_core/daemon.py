@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from .investigation import Investigation
 from .analysis import evidence_tables
+from .build_map import AppRule, refresh_sources
 from .models import PipelineSpec
 from .runner import run_pipeline
 
@@ -35,9 +36,10 @@ class Session:
 
 
 class InvestigationSession:
-    def __init__(self, investigation, assets):
+    def __init__(self, investigation, assets, project_root=None):
         self.token = secrets.token_urlsafe(32)
         self.investigation = investigation
+        self.project_root = project_root
         self.assets = assets
         self.arrows = {}
         self.state = "running" if investigation.analysis else "ready"
@@ -49,6 +51,15 @@ class InvestigationSession:
 
 class FindingReview(BaseModel):
     revision: int
+    review: str = "unreviewed"
+    reviewer_note: str = ""
+
+
+class RuleEdit(BaseModel):
+    revision: int
+    title: str | None = None
+    description: str | None = None
+    rationale: str | None = None
     review: str = "unreviewed"
     reviewer_note: str = ""
 
@@ -141,13 +152,15 @@ class SessionManager:
             "url": f"http://127.0.0.1:{self.port}/#session={pipeline.pipeline_id}&token={session.token}",
         }
 
-    def create_investigation(self, investigation: Investigation, assets):
+    def create_investigation(
+        self, investigation: Investigation, assets, project_root=None
+    ):
         for sid, old in list(self.sessions.items()):
             if time.monotonic() > old.expires:
                 self.sessions.pop(sid, None)
         if len(self.sessions) >= 32:
             raise ValueError("Session capacity reached; sessions expire after one hour")
-        session = InvestigationSession(investigation, assets)
+        session = InvestigationSession(investigation, assets, project_root)
         sid = investigation.investigation_id
         self.sessions[sid] = session
         if investigation.analysis:
@@ -157,6 +170,27 @@ class SessionManager:
             "token": session.token,
             "url": f"http://127.0.0.1:{self.port}/#session={sid}&token={session.token}",
         }
+
+    def refresh_build(self, session):
+        if (
+            not isinstance(session, InvestigationSession)
+            or not session.investigation.build_map
+        ):
+            raise HTTPException(409, "No build map is attached")
+        with session.lock:
+            if (
+                session.state == "running"
+                or session.investigation.status != "pending_approval"
+            ):
+                raise HTTPException(
+                    409,
+                    "Wait for computation or create a new session for a decided report",
+                )
+            if refresh_sources(session.investigation.build_map, session.project_root):
+                session.revision += 1
+                if session.investigation.analysis:
+                    self.queue_analysis(session)
+        return self.result(session)
 
     def result(self, session):
         with session.lock:
@@ -293,6 +327,63 @@ class SessionManager:
                     self.queue_analysis(session)
             return self.result(session)
 
+        @app.post("/api/session/{sid}/build/refresh")
+        def refresh_build(sid: str, body: Decision, request: Request):
+            session = auth(sid, request)
+            with session.lock:
+                if body.revision != session.revision:
+                    raise HTTPException(409, "Report changed; reload before refreshing")
+                return self.refresh_build(session)
+
+        @app.post("/api/session/{sid}/rules/{rule_id}/review")
+        def review_rule(sid: str, rule_id: str, body: RuleEdit, request: Request):
+            from .build_map import invalidate_checks
+
+            session = auth(sid, request)
+            if (
+                not isinstance(session, InvestigationSession)
+                or not session.investigation.build_map
+            ):
+                raise HTTPException(404, "No build map is attached")
+            with session.lock:
+                if (
+                    body.revision != session.revision
+                    or session.state == "running"
+                    or session.investigation.status != "pending_approval"
+                ):
+                    raise HTTPException(
+                        409, "Report changed, computing or already decided"
+                    )
+                build = session.investigation.build_map
+                rule = next((r for r in build.rules if r.id == rule_id), None)
+                if not rule:
+                    raise HTTPException(404, "Rule not found")
+                values = {
+                    k: v
+                    for k, v in body.model_dump(exclude={"revision"}).items()
+                    if v is not None
+                }
+                try:
+                    updated = AppRule.model_validate({**rule.model_dump(), **values})
+                except ValueError as exc:
+                    raise HTTPException(422, str(exc)) from exc
+                changed = any(
+                    getattr(updated, key) != getattr(rule, key)
+                    for key in ("title", "description", "rationale")
+                )
+                if changed:
+                    updated.revision += 1
+                    invalidate_checks(
+                        build,
+                        [rule.id],
+                        "Rule intent changed; implement the revision and run its checks again.",
+                    )
+                build.rules[build.rules.index(rule)] = updated
+                session.revision += 1
+                if session.investigation.analysis:
+                    self.queue_analysis(session)
+            return self.result(session)
+
         @app.get("/api/session/{sid}/export")
         def export(sid: str, request: Request):
             session = auth(sid, request)
@@ -332,6 +423,51 @@ class SessionManager:
                     lines.extend(
                         ["## Limitations", *[f"- {v}" for v in document.limitations]]
                     )
+                    if document.build_map:
+                        lines.extend(
+                            [
+                                "",
+                                "## Pages, rules and implementation",
+                                "",
+                                "Links and check outcomes supplied by the investigating agent; source snapshots do not prove enforcement.",
+                            ]
+                        )
+                        for rule in document.build_map.rules:
+                            lines.extend(
+                                [
+                                    "",
+                                    f"### {rule.title}",
+                                    f"Pages: {', '.join(rule.screen_ids)} · {rule.origin} · {rule.review} · revision {rule.revision}",
+                                    rule.description,
+                                    rule.rationale,
+                                    f"Reviewer: {rule.reviewer_note}",
+                                ]
+                            )
+                        for ref in document.build_map.implementation:
+                            lines.extend(
+                                [
+                                    "",
+                                    f"### {ref.title}",
+                                    f"{ref.path}:{ref.line_start}–{ref.line_end} · {ref.snapshot_status}",
+                                    f"Rules: {', '.join(ref.rule_ids)}",
+                                    f"SHA256: {ref.source_sha256}",
+                                    "````",
+                                    ref.excerpt,
+                                    "````",
+                                ]
+                            )
+                        for check in document.build_map.checks:
+                            lines.extend(
+                                [
+                                    "",
+                                    f"### {check.title}",
+                                    f"Agent-reported: {check.status} · {check.checked_at}",
+                                    f"Rules: {', '.join(check.rule_ids)}",
+                                    check.detail,
+                                    f"Evidence: {', '.join(check.evidence_ids)}",
+                                    check.stale_reason,
+                                ]
+                            )
                     if document.analysis:
                         lines.extend(
                             ["", "## Executed analysis", "", document.analysis.title]
@@ -375,6 +511,19 @@ class SessionManager:
                     or document.status != "pending_approval"
                 ):
                     raise HTTPException(409, "Session changed or already decided")
+                if (
+                    isinstance(session, InvestigationSession)
+                    and document.build_map
+                    and action == "approve"
+                ):
+                    if refresh_sources(document.build_map, session.project_root):
+                        session.revision += 1
+                        if document.analysis:
+                            self.queue_analysis(session)
+                        raise HTTPException(
+                            409,
+                            "Linked source changed. Review stale checks and the new revision before approving.",
+                        )
                 document.status = "approved" if action == "approve" else "rejected"
                 if isinstance(session, InvestigationSession) and document.analysis:
                     document.analysis.status = document.status

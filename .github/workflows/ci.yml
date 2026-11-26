@@ -20,3 +20,7 @@ jobs:
         run: uv run --with playwright python tests/browser_smoke.py
         env:
           BEAKDOWN_BROWSER: chromium
+      - name: Verify page-rule-code review in browser
+        run: uv run --with playwright python tests/build_map_browser.py
+        env:
+          BEAKDOWN_BROWSER: chromium

@@ -12,6 +12,7 @@ from PIL import Image
 from pydantic import BaseModel, Field, model_validator
 
 from .models import PipelineSpec
+from .build_map import BuildMap
 
 MAX_IMAGE_BYTES = 8_000_000
 MAX_SESSION_BYTES = 32_000_000
@@ -94,6 +95,7 @@ class Investigation(BaseModel):
     limitations: list[str] = Field(default_factory=list, max_length=100)
     status: Literal["pending_approval", "approved", "rejected"] = "pending_approval"
 
+    build_map: BuildMap | None = None
     analysis: PipelineSpec | None = None
     analysis_links: list[AnalysisLink] = Field(default_factory=list, max_length=500)
 
@@ -108,6 +110,11 @@ class Investigation(BaseModel):
             raise ValueError("Finding references an unknown screen")
         if any(c.source not in ids or c.target not in ids for c in self.connections):
             raise ValueError("Connection references an unknown screen")
+        if self.build_map:
+            if any(set(r.screen_ids) - ids for r in self.build_map.rules) or any(
+                set(r.screen_ids) - ids for r in self.build_map.implementation
+            ):
+                raise ValueError("Build map references an unknown screen")
         node_ids = {n.id for n in self.analysis.nodes} if self.analysis else set()
         finding_screens = {f.id: f.screen_id for f in self.findings}
         if any(
@@ -120,7 +127,15 @@ class Investigation(BaseModel):
                 "Analysis links must reference existing screens, nodes and findings"
             )
         if self.analysis and any(
-            n.id in {"audit_findings", "audit_screens", "audit_connections"}
+            n.id
+            in {
+                "audit_findings",
+                "audit_screens",
+                "audit_connections",
+                "audit_rules",
+                "audit_implementation",
+                "audit_checks",
+            }
             for n in self.analysis.nodes
         ):
             raise ValueError("Pipeline node IDs cannot shadow the audit input tables")

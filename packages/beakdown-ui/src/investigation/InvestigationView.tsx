@@ -20,6 +20,7 @@ import type {
   Screen,
 } from "../types";
 import AnalysisPanel from "../analysis/AnalysisPanel";
+import BuildMapPanel from "./BuildMapPanel";
 import {
   ArrowLeft,
   ArrowRight,
@@ -27,6 +28,7 @@ import {
   PanelsTopLeft,
   GitBranch,
   Columns2,
+  BookOpen,
 } from "lucide-react";
 import "./investigation.css";
 import "./starchy.css";
@@ -127,8 +129,12 @@ function ScreenCanvas({
   const width = useStore((s) => s.width),
     height = useStore((s) => s.height),
     initialized = useNodesInitialized();
-  const measuredHeight = useStore(s => s.nodeLookup.get(selected)?.measured.height ?? 0);
-  const measuredWidth = useStore(s => s.nodeLookup.get(selected)?.measured.width ?? 0);
+  const measuredHeight = useStore(
+    (s) => s.nodeLookup.get(selected)?.measured.height ?? 0,
+  );
+  const measuredWidth = useStore(
+    (s) => s.nodeLookup.get(selected)?.measured.width ?? 0,
+  );
   const mappedNodes = useMemo(
     () =>
       screens.map((screen, i) => ({
@@ -177,7 +183,15 @@ function ScreenCanvas({
         padding: 0.2,
         maxZoom: 0.95,
       });
-  }, [selected, width, height, measuredHeight, measuredWidth, initialized, overview]);
+  }, [
+    selected,
+    width,
+    height,
+    measuredHeight,
+    measuredWidth,
+    initialized,
+    overview,
+  ]);
   return (
     <ReactFlow
       nodes={nodes}
@@ -364,6 +378,9 @@ export default function InvestigationView({
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showOverview, setShowOverview] = useState(false);
+  const [surface, setSurface] = useState<"build" | "analysis">(
+    report.build_map ? "build" : "analysis",
+  );
   const [mode, setMode] = useState<"evidence" | "both" | "pipeline">("both");
   const [exporting, setExporting] = useState(false);
   const imageIds = report.screens.map((s) => s.image_id).join(",");
@@ -435,7 +452,7 @@ export default function InvestigationView({
   }
   return (
     <div
-      className={`investigation-app mode-${report.analysis ? mode : "evidence"}`}
+      className={`investigation-app mode-${report.analysis || report.build_map ? mode : "evidence"}`}
     >
       <svg className="material-filters" aria-hidden="true">
         <defs>
@@ -498,10 +515,12 @@ export default function InvestigationView({
           {error || assetError}
         </div>
       )}
-      {report.analysis && (
+      {(report.analysis || report.build_map) && (
         <nav className="workspace-switcher" aria-label="Workspace view">
           <span className="workspace-instruction">
-            Evidence and execution, connected.
+            {report.build_map
+              ? "See what each page is built to do."
+              : "Evidence and execution, connected."}
           </span>
           <div
             className="gooey-switch"
@@ -521,7 +540,11 @@ export default function InvestigationView({
               [
                 ["evidence", "Screens", PanelsTopLeft],
                 ["both", "Both", Columns2],
-                ["pipeline", "Data flow", GitBranch],
+                [
+                  "pipeline",
+                  surface === "build" ? "Rules & code" : "Data flow",
+                  surface === "build" ? BookOpen : GitBranch,
+                ],
               ] as const
             ).map(([value, label, Icon]) => (
               <button
@@ -534,9 +557,26 @@ export default function InvestigationView({
               </button>
             ))}
           </div>
-          <span className="workspace-revision">
-            Revision {session.revision}
-          </span>
+          <div className="workspace-meta">
+            {report.build_map && report.analysis && (
+              <label>
+                Inspect
+                <select
+                  aria-label="Inspection layer"
+                  value={surface}
+                  onChange={(e) =>
+                    setSurface(e.target.value as "build" | "analysis")
+                  }
+                >
+                  <option value="build">App build map</option>
+                  <option value="analysis">Data analysis</option>
+                </select>
+              </label>
+            )}
+            <span className="workspace-revision">
+              Revision {session.revision}
+            </span>
+          </div>
         </nav>
       )}
       <div className="investigation-workspace">
@@ -549,7 +589,8 @@ export default function InvestigationView({
             className={`overview-button ${showOverview ? "active" : ""}`}
             onClick={() => setShowOverview(true)}
           >
-            Investigation overview<span>{report.findings.length} findings</span>
+            {report.build_map ? "App overview" : "Investigation overview"}
+            <span>{report.findings.length} findings</span>
           </button>
           <ol>
             {report.screens.map((s, i) => (
@@ -578,6 +619,8 @@ export default function InvestigationView({
                           .length
                       }{" "}
                       findings
+                      {report.build_map &&
+                        ` · ${report.build_map.rules.filter((r) => r.screen_ids.includes(s.id)).length} rules`}
                     </small>
                   </div>
                 </button>
@@ -675,8 +718,8 @@ export default function InvestigationView({
               </button>
             </div>
           </section>
-          {report.analysis && mode !== "evidence" && (
-            <AnalysisPanel
+          {surface === "build" && report.build_map && mode !== "evidence" ? (
+            <BuildMapPanel
               session={session}
               screenId={selected}
               busy={busy}
@@ -686,6 +729,20 @@ export default function InvestigationView({
                 setShowOverview(false);
               }}
             />
+          ) : (
+            report.analysis &&
+            mode !== "evidence" && (
+              <AnalysisPanel
+                session={session}
+                screenId={selected}
+                busy={busy}
+                action={action}
+                onScreen={(id) => {
+                  setSelected(id);
+                  setShowOverview(false);
+                }}
+              />
+            )
           )}
         </div>
         <aside
@@ -701,6 +758,47 @@ export default function InvestigationView({
                 {report.summary ||
                   "Inspect the captured screens and their evidence-linked findings."}
               </p>
+              {report.build_map && (
+                <div className="build-overview">
+                  <h3>Build coverage</h3>
+                  <p>
+                    {report.build_map.rules.length} rules ·{" "}
+                    {report.build_map.implementation.length} source references ·{" "}
+                    {report.build_map.checks.length} checks
+                  </p>
+                  <p>
+                    {
+                      report.build_map.checks.filter(
+                        (c) => c.status === "failed",
+                      ).length
+                    }{" "}
+                    failed ·{" "}
+                    {
+                      report.build_map.checks.filter(
+                        (c) => c.status === "stale",
+                      ).length
+                    }{" "}
+                    stale ·{" "}
+                    {
+                      report.build_map.checks.filter(
+                        (c) => c.status === "not_run" || c.status === "blocked",
+                      ).length
+                    }{" "}
+                    unverified
+                  </p>
+                  <p>
+                    Code links and test outcomes are supplied by the agent. A
+                    source snapshot does not prove a rule is enforced.
+                  </p>
+                  {report.build_map.rules
+                    .filter((r) => r.review === "disputed")
+                    .map((r) => (
+                      <p key={r.id}>
+                        Change requested: <b>{r.title}</b>
+                      </p>
+                    ))}
+                </div>
+              )}
               <div className="confidence-counts">
                 <div>
                   <b>{counts.observed}</b>
@@ -851,8 +949,9 @@ export default function InvestigationView({
         <div className="review-count">
           <span className="live-dot" />
           <span>
-            {report.findings.filter((f) => f.review !== "unreviewed").length} of{" "}
-            {report.findings.length} findings reviewed
+            {report.build_map
+              ? `${report.build_map.rules.filter((r) => r.review !== "unreviewed").length} of ${report.build_map.rules.length} rules reviewed`
+              : `${report.findings.filter((f) => f.review !== "unreviewed").length} of ${report.findings.length} findings reviewed`}
           </span>
           <button className="text-button" onClick={() => setShowOverview(true)}>
             View summary
@@ -884,7 +983,7 @@ export default function InvestigationView({
             <button
               onClick={() =>
                 navigator.clipboard.writeText(
-                  `Beakdown investigation ${report.investigation_id} reviewed. Call get_session_result with its existing token. Read all corrections, disputed findings and limitations before continuing.`,
+                  `Beakdown investigation ${report.investigation_id} reviewed. Call get_session_result with its existing token. Read all rule changes, implementation references, stale checks, corrections, disputed findings and limitations before continuing.`,
                 )
               }
             >

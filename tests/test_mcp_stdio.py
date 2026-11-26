@@ -15,6 +15,7 @@ def test_registered_investigation_tool():
                 assert {t.name for t in result.tools} == {
                     "create_handoff_session",
                     "create_investigation_session",
+                    "refresh_build_evidence",
                     "get_session_result",
                 }
                 tool = next(

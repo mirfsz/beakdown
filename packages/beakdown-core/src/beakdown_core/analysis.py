@@ -37,7 +37,7 @@ def evidence_tables(document):
             ("confidence", pa.string()),
         ]
     )
-    return {
+    tables = {
         "audit_findings": pa.Table.from_pylist(
             [
                 {
@@ -81,6 +81,79 @@ def evidence_tables(document):
             schema=connections_schema,
         ),
     }
+    build = document.build_map
+    tables["audit_rules"] = pa.Table.from_pylist(
+        [
+            {
+                "id": r.id,
+                "screen_id": screen,
+                "title": r.title,
+                "description": r.description,
+                "origin": r.origin,
+                "review": r.review,
+                "revision": r.revision,
+            }
+            for r in (build.rules if build else [])
+            for screen in r.screen_ids
+        ],
+        schema=pa.schema(
+            [
+                ("id", pa.string()),
+                ("screen_id", pa.string()),
+                ("title", pa.string()),
+                ("description", pa.string()),
+                ("origin", pa.string()),
+                ("review", pa.string()),
+                ("revision", pa.int64()),
+            ]
+        ),
+    )
+    tables["audit_implementation"] = pa.Table.from_pylist(
+        [
+            {
+                "id": r.id,
+                "path": r.path,
+                "layer": r.layer,
+                "snapshot_status": r.snapshot_status,
+                "source_sha256": r.source_sha256,
+            }
+            for r in (build.implementation if build else [])
+        ],
+        schema=pa.schema(
+            [
+                ("id", pa.string()),
+                ("path", pa.string()),
+                ("layer", pa.string()),
+                ("snapshot_status", pa.string()),
+                ("source_sha256", pa.string()),
+            ]
+        ),
+    )
+    tables["audit_checks"] = pa.Table.from_pylist(
+        [
+            {
+                "id": c.id,
+                "rule_id": rule,
+                "title": c.title,
+                "status": c.status,
+                "method": c.method,
+                "detail": c.detail,
+            }
+            for c in (build.checks if build else [])
+            for rule in c.rule_ids
+        ],
+        schema=pa.schema(
+            [
+                ("id", pa.string()),
+                ("rule_id", pa.string()),
+                ("title", pa.string()),
+                ("status", pa.string()),
+                ("method", pa.string()),
+                ("detail", pa.string()),
+            ]
+        ),
+    )
+    return tables
 
 
 def default_analysis(document):

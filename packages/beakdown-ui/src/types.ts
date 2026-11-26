@@ -61,6 +61,53 @@ export type Finding = {
   review: "unreviewed" | "confirmed" | "disputed";
   reviewer_note: string;
 };
+export type AppRule = {
+  id: string;
+  title: string;
+  description: string;
+  screen_ids: string[];
+  origin: "requirement" | "observed" | "inferred";
+  rationale: string;
+  evidence_ids: string[];
+  revision: number;
+  review: "unreviewed" | "confirmed" | "disputed";
+  reviewer_note: string;
+};
+export type ImplementationRef = {
+  id: string;
+  title: string;
+  path: string;
+  line_start: number;
+  line_end: number;
+  symbol: string;
+  layer: string;
+  rule_ids: string[];
+  screen_ids: string[];
+  evidence_ids: string[];
+  excerpt: string;
+  source_sha256: string;
+  snapshot_status: "captured" | "reference_only" | "changed" | "unavailable";
+};
+export type VerificationCheck = {
+  id: string;
+  title: string;
+  rule_ids: string[];
+  implementation_ids: string[];
+  status: "not_run" | "passed" | "failed" | "blocked" | "stale";
+  method: "automated" | "manual";
+  command: string;
+  detail: string;
+  evidence_ids: string[];
+  checked_at: string;
+  rule_revisions: Record<string, number>;
+  source_hashes: Record<string, string>;
+  stale_reason: string;
+};
+export type BuildMap = {
+  rules: AppRule[];
+  implementation: ImplementationRef[];
+  checks: VerificationCheck[];
+};
 export type InvestigationSession = {
   kind: "investigation";
   state: string;
@@ -82,6 +129,7 @@ export type InvestigationSession = {
       evidence_ids: string[];
     }[];
     limitations: string[];
+    build_map?: BuildMap | null;
     analysis?: Session["pipeline"] | null;
     analysis_links: {
       screen_id: string;

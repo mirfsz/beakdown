@@ -18,6 +18,8 @@ Make agent work visually inspectable before the human lets the agent proceed. Th
 
 A local browser canvas served by a loopback daemon, reached through an MCP tool or a review CLI. REA captures original application evidence. DuckDB runs read-only transformations with bounded table previews.
 
+The app-building view connects captured pages to intended or observed rules, linked source snapshots, agent-reported checks and human change requests. Rule changes invalidate earlier checks; linked local source changes are checked on refresh and approval.
+
 ## Capabilities and Constraints
 
 Real screenshots, annotated findings, confidence and provenance, SQL DAG execution, Arrow previews, query edits, human corrections, report export and revision-checked approval. Data computation and navigation relationships must be distinguished. No fabricated outputs or inferred backend facts. Sessions expire after one hour; saved input manifests can recreate them. Production changes remain the agent's responsibility.

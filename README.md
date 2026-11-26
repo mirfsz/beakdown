@@ -1,12 +1,33 @@
 # 🦅 Beakdown
 
-**An open-source visual review canvas for application investigations and AI agent data pipelines.**
+**A visual map of your app’s pages, rules, implementation and verification—plus a review canvas for agent data pipelines.**
 
 Give agent work a human checkpoint. Stage a SQL DAG, inspect bounded table previews, scrub through execution steps, edit queries, and approve the exact reviewed plan before the agent proceeds.
 
 Pair Beakdown with **REA** to break down an app or website into captured screens, connected journeys, annotated findings and evidence. The Beakdown skill guides the agent through capture and opens a browser workbench where you can inspect, confirm, dispute and export the findings.
 
 ![Beakdown screenshot investigation](docs/investigation.png)
+
+## See what your app is built to do
+
+Ask your coding agent: **“Use Beakdown with REA to map this app’s pages, their requirements, the code that implements them, and the evidence from your checks.”**
+
+Select a page, then follow **Intent → Code → Checks**. A shared rule can span several pages. Code references show repository-relative files, exact line ranges and bounded source snapshots. Checks distinguish reported passes, failures, blocked/untested behavior and stale results. Requirements, observed behavior and inferred rules remain separate.
+
+Edit a rule to request a change. Beakdown records your intent, shows the declared affected pages/code/checks and marks earlier results stale. Copy the change request back to your agent, which implements and tests it in your app. Refresh source rechecks declared local files; approval also checks for changed source and refuses an outdated revision. Export includes the map, source excerpts, check evidence references and your corrections.
+
+![Page, rule, implementation and check review](docs/build-map.png)
+
+**Try an actual example:** the fictional demo shows save feedback, but its workspace name is lost on reload. The capture script runs real browser checks, records three passes and that failed persistence criterion, and prepares a build map:
+
+```sh
+uv run --with playwright python examples/build_map_demo.py --output /absolute/folder/outside-the-repo
+uv run beakdown-review /absolute/folder/outside-the-repo/investigation.json
+```
+
+This requires Chrome; use `BEAKDOWN_BROWSER=chromium` with Playwright Chromium installed for another environment. The example’s acceptance criteria are explicitly fictional, and its outcomes are actual browser observations.
+
+The agent gathers and declares the relationships using source inspection and REA. Beakdown validates links, snapshots granted source and manages review; it does not automatically discover every dependency, independently certify a test outcome, execute check commands or edit your app. The impact view follows the supplied links. Approval acknowledges the report, including known failures; it is not a release certification. [Build-map input and lifecycle](docs/build-map-contract.md).
 
 ## Break down an app or website
 
@@ -155,6 +176,7 @@ pnpm build
 pnpm dev
 # In another terminal, after a production build (requires Chrome):
 uv run --with playwright python tests/browser_smoke.py
+uv run --with playwright python tests/build_map_browser.py
 ```
 
 `pnpm dev` starts an isolated UI development server on a dynamic port. Use the built UI served by the daemon for authenticated end-to-end sessions.

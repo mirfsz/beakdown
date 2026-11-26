@@ -61,6 +61,8 @@ def create_investigation_session(
     analysis_pipeline: dict | None = None,
     analysis_links: list[dict] | None = None,
     include_analysis: bool = True,
+    build_map: dict | None = None,
+    project_root: str | None = None,
 ) -> dict:
     """Present an application/website investigation as a screenshot evidence canvas.
 
@@ -75,6 +77,15 @@ def create_investigation_session(
     Analysis is included by default: executable SQL over audit_findings, audit_screens
     and audit_connections, built from this report. Supply analysis_pipeline and
     analysis_links to customize it, or include_analysis=false for evidence only.
+    build_map links rules (id/title/description/screen_ids/origin), implementation
+    (id/title/path/line_start/line_end/rule_ids/screen_ids/layer) and checks
+    (id/title/rule_ids/implementation_ids/status/method/detail/evidence_ids/checked_at).
+    project_root is an explicit read grant for declared repository-relative source
+    files. Without it, implementation links stay unverified references. Source
+    excerpts/hashes are captured by the server, never trusted from agent input.
+    Pass/fail checks need evidence, detail and timestamp; bind source_hashes by
+    implementation ID to exact SHA256 file digests or they become stale. Checks
+    are agent-reported outcomes; commands are recorded, never executed here.
     """
     from beakdown_core.investigation import AnalysisLink, Investigation, load_screens
 
@@ -95,6 +106,20 @@ def create_investigation_session(
         connections=connections or [],
         limitations=limitations or [],
     )
+    if project_root:
+        from pathlib import Path
+
+        root = Path(project_root).expanduser()
+        if not root.is_absolute() or not root.is_dir():
+            raise ValueError(
+                "project_root must be an existing absolute directory; it grants declared source-file reads"
+            )
+        project_root = str(root.resolve())
+    if build_map is not None:
+        from beakdown_core.build_map import stage_build_map
+
+        investigation.build_map = stage_build_map(build_map, project_root)
+        investigation = Investigation.model_validate(investigation.model_dump())
     if include_analysis:
         from beakdown_core.analysis import default_analysis
         from beakdown_core.models import PipelineSpec
@@ -118,8 +143,18 @@ def create_investigation_session(
                 investigation
             )
         investigation = Investigation.model_validate(investigation.model_dump())
-    result = manager().create_investigation(investigation, assets)
+    result = manager().create_investigation(investigation, assets, project_root)
     result["message"] = (
-        f"Inspect the screenshot canvas: {result['url']} . Review findings, export the report, and return here when ready."
+        f"Inspect the {'app build map' if investigation.build_map else 'screenshot canvas'}: {result['url']} . Review rules and findings, export the report, and return here when ready."
     )
     return result
+
+
+def refresh_build_evidence(session_id: str, token: str) -> dict:
+    """Recheck granted local source snapshots and invalidate checks for changed files.
+
+    Does not execute tests or alter source. Approved reports are immutable; create a
+    new session for a new build. The agent must capture and rerun affected checks.
+    """
+    service = manager()
+    return service.refresh_build(service.authorize(session_id, token))
