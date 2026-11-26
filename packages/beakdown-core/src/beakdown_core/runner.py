@@ -23,7 +23,7 @@ def ordered_nodes(pipeline):
             remaining.remove(node)
 
 
-def run_pipeline(pipeline: PipelineSpec, allowed_paths=()):
+def run_pipeline(pipeline: PipelineSpec, allowed_paths=(), input_tables=None):
     pipeline = pipeline.model_copy(deep=True)
     arrows = {}
     with duckdb.connect(
@@ -38,6 +38,8 @@ def run_pipeline(pipeline: PipelineSpec, allowed_paths=()):
         db.execute("SET allowed_paths = ?", [list(allowed_paths)])
         db.execute("SET enable_external_access = false")
         db.execute("SET lock_configuration = true")
+        for name, table in (input_tables or {}).items():
+            db.register(name, table)
         for node in ordered_nodes(pipeline):
             start = perf_counter()
             query = node.sql_or_expr or "SELECT NULL AS empty WHERE false"

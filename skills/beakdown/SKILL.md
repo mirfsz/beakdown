@@ -61,6 +61,10 @@ Add findings with `id`, `screen_id`, `title`, `detail`, `confidence` (`observed`
 
 Connect screen IDs with `source`, `target`, descriptive action `label`, `confidence` (`observed` or `inferred`), and `evidence_ids`. Use observed only when evidence establishes that transition. Organize the supplied screen list in a useful journey order. Provide a plain-language report `summary`, `target`, and investigation `limitations` covering untested routes, states and unavailable providers. The canvas supports branches; list order is a presentation sequence, not proof of chronology.
 
+Investigations include executable evidence analysis by default. The Both view pairs screenshot journeys with a real DuckDB DAG over `audit_findings`, `audit_screens` and `audit_connections`. Default steps list findings, aggregate them by screen and surface inferred/unknown/disputed items. Screen selection scopes sampled rows; a linked row navigates back to its screenshot. Human corrections recompute the analysis before approval. All previews remain bounded to 50 rows and below the transport budget.
+
+For a specific analysis, pass `analysis_pipeline` with the normal PipelineSpec schema and `analysis_links` entries `{screen_id,node_id,finding_ids}`. Use safe SQL over these input tables and upstream nodes, with no external file reads. For evidence only, pass `include_analysis: false`. Explain that execution results describe the captured report, not hidden internals of the target application.
+
 ## Open and review
 
 Return the inspection URL and open it using the client's browser capability when available. Explain what was inspected, what remains uncertain, and that the human can enlarge captures, inspect annotations, filter findings, confirm/dispute claims, add corrections, and export the report. Keep the daemon process alive throughout review.
@@ -71,6 +75,6 @@ If Beakdown's MCP tools are unavailable in the active agent, use the local CLI a
 uv --directory /absolute/path/to/beakdown run beakdown-review /absolute/path/to/manifest.json
 ```
 
-The manifest fields match `create_investigation_session`: `title`, `target`, `screens`, `findings`, `connections`, `summary`, `limitations`. The CLI opens the browser by default; `--no-open` prints the link only. Launch it as a long-lived process. Do not kill it before the user has reviewed/exported the canvas. Never include its token in a query string or public repository.
+The manifest fields match `create_investigation_session`: `title`, `target`, `screens`, `findings`, `connections`, `summary`, `limitations`, and optional `analysis_pipeline`, `analysis_links`, `include_analysis`. The CLI opens the browser by default; `--no-open` prints the link only. Launch it as a long-lived process. Do not kill it before the user has reviewed/exported the canvas. Never include its token in a query string or public repository.
 
 After the human returns, call `get_session_result(session_id, token)`. Read disputed findings and reviewer notes even if the overall report is approved. Approval means the report was reviewed, not that every inference is proven or that changes to the inspected app are authorized. In-memory sessions expire after one hour; use Export report to retain the report and screenshots. Do not claim unattended crawling, automatic exhaustive app understanding or persistent history; the skill orchestrates the evidence collection explicitly.

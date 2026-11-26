@@ -129,7 +129,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div>
-          <b className="brand">◈ Beakdown</b>
+          <b className="brand">Beakdown</b>
           <h1>{session.pipeline.title}</h1>
           <p>
             {session.pipeline.description ||

@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .investigation import Investigation
+from .analysis import evidence_tables
 from .models import PipelineSpec
 from .runner import run_pipeline
 
@@ -38,7 +39,8 @@ class InvestigationSession:
         self.token = secrets.token_urlsafe(32)
         self.investigation = investigation
         self.assets = assets
-        self.state = "ready"
+        self.arrows = {}
+        self.state = "running" if investigation.analysis else "ready"
         self.error = None
         self.revision = 0
         self.lock = threading.RLock()
@@ -99,6 +101,31 @@ class SessionManager:
             with session.lock:
                 session.state, session.error = "error", str(exc)
 
+    def compute_analysis(self, session, document, revision):
+        try:
+            result, arrows = run_pipeline(
+                document.analysis, input_tables=evidence_tables(document)
+            )
+            with session.lock:
+                if session.revision == revision:
+                    session.investigation.analysis, session.arrows = result, arrows
+                    session.state, session.error = "ready", None
+        except Exception as exc:
+            with session.lock:
+                if session.revision == revision:
+                    session.state, session.error = "error", str(exc)
+
+    def queue_analysis(self, session):
+        session.state, session.error, session.arrows = "running", None, {}
+        for node in session.investigation.analysis.nodes:
+            node.preview = None
+        self.pool.submit(
+            self.compute_analysis,
+            session,
+            session.investigation.model_copy(deep=True),
+            session.revision,
+        )
+
     def create(self, pipeline, allowed_paths=()):
         for sid, old in list(self.sessions.items()):
             if time.monotonic() > old.expires:
@@ -123,6 +150,8 @@ class SessionManager:
         session = InvestigationSession(investigation, assets)
         sid = investigation.investigation_id
         self.sessions[sid] = session
+        if investigation.analysis:
+            self.queue_analysis(session)
         return {
             "session_id": sid,
             "token": session.token,
@@ -177,8 +206,6 @@ class SessionManager:
         @app.get("/api/session/{sid}/arrow/{node}")
         def arrow(sid: str, node: str, request: Request):
             session = auth(sid, request)
-            if isinstance(session, InvestigationSession):
-                raise HTTPException(404, "This session has no table previews")
             if node not in session.arrows:
                 raise HTTPException(404, "Preview unavailable")
             return Response(
@@ -189,25 +216,34 @@ class SessionManager:
         def edit(sid: str, body: Edit, request: Request):
             session = auth(sid, request)
             with session.lock:
-                if isinstance(session, InvestigationSession):
-                    raise HTTPException(
-                        409, "SQL editing is only available for pipeline sessions"
-                    )
+                document = (
+                    session.investigation
+                    if isinstance(session, InvestigationSession)
+                    else None
+                )
+                pipeline = document.analysis if document else session.pipeline
+                status = document.status if document else pipeline.status
+                if pipeline is None:
+                    raise HTTPException(409, "No analysis pipeline is attached")
                 if (
-                    session.state != "ready"
-                    or session.pipeline.status != "pending_approval"
+                    session.state not in ("ready", "error")
+                    or status != "pending_approval"
                     or body.revision != session.revision
                 ):
                     raise HTTPException(409, "Session changed or is not editable")
-                pipeline = session.pipeline.model_copy(deep=True)
-                node = next((n for n in pipeline.nodes if n.id == body.node_id), None)
+                updated = pipeline.model_copy(deep=True)
+                node = next((n for n in updated.nodes if n.id == body.node_id), None)
                 if node is None:
                     raise HTTPException(404, "Unknown node")
                 node.sql_or_expr = body.sql_or_expr
-                pipeline = PipelineSpec.model_validate(pipeline.model_dump())
-                session.state, session.error = "running", None
+                updated = PipelineSpec.model_validate(updated.model_dump())
                 session.revision += 1
-                self.pool.submit(self.compute, session, pipeline)
+                if document:
+                    document.analysis = updated
+                    self.queue_analysis(session)
+                else:
+                    session.state, session.error = "running", None
+                    self.pool.submit(self.compute, session, updated)
             return self.result(session)
 
         @app.get("/api/session/{sid}/assets/{image_id}")
@@ -233,6 +269,11 @@ class SessionManager:
                     or session.investigation.status != "pending_approval"
                 ):
                     raise HTTPException(409, "Report changed or already decided")
+                if session.state == "running":
+                    raise HTTPException(
+                        409,
+                        "Wait for analysis to finish before reviewing another finding",
+                    )
                 if (
                     body.review not in ("unreviewed", "confirmed", "disputed")
                     or len(body.reviewer_note) > 5000
@@ -248,6 +289,8 @@ class SessionManager:
                     raise HTTPException(404, "Finding not found")
                 finding.review, finding.reviewer_note = body.review, body.reviewer_note
                 session.revision += 1
+                if session.investigation.analysis:
+                    self.queue_analysis(session)
             return self.result(session)
 
         @app.get("/api/session/{sid}/export")
@@ -289,6 +332,23 @@ class SessionManager:
                     lines.extend(
                         ["## Limitations", *[f"- {v}" for v in document.limitations]]
                     )
+                    if document.analysis:
+                        lines.extend(
+                            ["", "## Executed analysis", "", document.analysis.title]
+                        )
+                        for node in document.analysis.nodes:
+                            lines.extend(
+                                [
+                                    "",
+                                    f"### {node.title}",
+                                    "```sql",
+                                    node.sql_or_expr or "",
+                                    "```",
+                                    f"Output rows: {node.preview.total_rows if node.preview else 'Not available'}",
+                                ]
+                            )
+                        for node_id, data in session.arrows.items():
+                            archive.writestr(f"analysis/{node_id}.arrow", data)
                     archive.writestr("report.md", "\n".join(lines))
                 return Response(
                     buffer.getvalue(),
@@ -316,6 +376,8 @@ class SessionManager:
                 ):
                     raise HTTPException(409, "Session changed or already decided")
                 document.status = "approved" if action == "approve" else "rejected"
+                if isinstance(session, InvestigationSession) and document.analysis:
+                    document.analysis.status = document.status
                 session.revision += 1
             return self.result(session)
 

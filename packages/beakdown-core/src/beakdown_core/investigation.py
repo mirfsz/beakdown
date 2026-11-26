@@ -11,6 +11,8 @@ from typing import Literal
 from PIL import Image
 from pydantic import BaseModel, Field, model_validator
 
+from .models import PipelineSpec
+
 MAX_IMAGE_BYTES = 8_000_000
 MAX_SESSION_BYTES = 32_000_000
 MAX_RECORD_BYTES = 24_000_000
@@ -75,6 +77,12 @@ class Connection(BaseModel):
     evidence_ids: list[str] = Field(default_factory=list, max_length=50)
 
 
+class AnalysisLink(BaseModel):
+    screen_id: str
+    node_id: str
+    finding_ids: list[str] = Field(default_factory=list, max_length=300)
+
+
 class Investigation(BaseModel):
     investigation_id: str
     title: str = Field(min_length=1, max_length=200)
@@ -85,6 +93,9 @@ class Investigation(BaseModel):
     connections: list[Connection] = Field(default_factory=list, max_length=200)
     limitations: list[str] = Field(default_factory=list, max_length=100)
     status: Literal["pending_approval", "approved", "rejected"] = "pending_approval"
+
+    analysis: PipelineSpec | None = None
+    analysis_links: list[AnalysisLink] = Field(default_factory=list, max_length=500)
 
     @model_validator(mode="after")
     def references(self):
@@ -97,6 +108,22 @@ class Investigation(BaseModel):
             raise ValueError("Finding references an unknown screen")
         if any(c.source not in ids or c.target not in ids for c in self.connections):
             raise ValueError("Connection references an unknown screen")
+        node_ids = {n.id for n in self.analysis.nodes} if self.analysis else set()
+        finding_screens = {f.id: f.screen_id for f in self.findings}
+        if any(
+            link.screen_id not in ids
+            or link.node_id not in node_ids
+            or any(finding_screens.get(f) != link.screen_id for f in link.finding_ids)
+            for link in self.analysis_links
+        ):
+            raise ValueError(
+                "Analysis links must reference existing screens, nodes and findings"
+            )
+        if self.analysis and any(
+            n.id in {"audit_findings", "audit_screens", "audit_connections"}
+            for n in self.analysis.nodes
+        ):
+            raise ValueError("Pipeline node IDs cannot shadow the audit input tables")
         return self
 
 

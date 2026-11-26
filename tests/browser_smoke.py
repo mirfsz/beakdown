@@ -72,12 +72,42 @@ def main():
                         else ({} if executable == "chromium" else {"channel": "chrome"})
                     ),
                 )
-                page = browser.new_page(viewport={"width": 1440, "height": 1000})
+                page = browser.new_page(viewport={"width": 1600, "height": 1100})
                 errors = []
                 page.on("pageerror", lambda e: errors.append(str(e)))
                 page.goto(result["url"])
                 page.wait_for_load_state("networkidle")
                 expect(page.locator(".screen-card img")).to_have_count(2)
+                expect(page.locator(".analysis-node")).to_have_count(3)
+                expect(page.locator(".execution-status")).to_have_text(
+                    "Executed locally"
+                )
+                page.get_by_role("button", name="Data flow", exact=True).click()
+                expect(page.locator(".investigation-stage")).not_to_be_visible()
+                page.get_by_role("button", name="Both", exact=True).click()
+                expect(page.locator(".investigation-stage")).to_be_visible()
+                page.get_by_role("button", name="This screen", exact=True).click()
+                page.get_by_role("button", name="Inspect screen home").first.click()
+                expect(page.locator(".inspector-heading h2")).to_have_text("Home")
+                page.get_by_role("button", name="Edit SQL", exact=True).click()
+                page.locator(".analysis-editor textarea").fill(
+                    "SELECT * FROM audit_findings ORDER BY id DESC"
+                )
+                page.get_by_role("button", name="Recompute", exact=True).click()
+                expect(page.locator(".execution-status")).to_have_text(
+                    "Executed locally"
+                )
+                expect(page.locator(".analysis-table tbody tr")).to_have_count(2)
+                page.wait_for_function("""() => {
+                  const card=document.querySelector('.screen-card').getBoundingClientRect();
+                  const canvas=document.querySelector('.screenshot-canvas').getBoundingClientRect();
+                  return card.y>=canvas.y-2 && card.bottom<=canvas.bottom+2;
+                }""")
+                page.set_viewport_size({"width": 1280, "height": 900})
+                page.wait_for_function("""() => {
+                  const node=document.querySelector('.analysis-node strong');
+                  return node.getBoundingClientRect().height >= 12;
+                }""")
                 assert page.evaluate("location.hash") == ""
                 page.get_by_role("button", name="unknown", exact=True).click()
                 expect(page.locator(".finding-card")).to_have_count(1)
@@ -98,6 +128,9 @@ def main():
                 card.get_by_role("textbox").fill("Please inspect a second viewport.")
                 card.get_by_role("button", name="Dispute", exact=True).click()
                 expect(card.locator(".review-state")).to_have_text("disputed")
+                expect(page.locator(".execution-status")).to_have_text(
+                    "Executed locally"
+                )
                 with page.expect_download() as download:
                     page.get_by_role("button", name="Export report").click()
                 file = download.value.path()

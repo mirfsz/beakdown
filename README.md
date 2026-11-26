@@ -68,7 +68,7 @@ Screenshots are authenticated, validated and normalized to inert WebP. Complete 
 
 Approval records the human's assessment. Disputed findings and reviewer notes are returned even when the overall report is approved; approval does not establish that every inference is true. Screenshots and source metadata may contain private content: keep evidence out of public repositories unless deliberately sharing it.
 
-For a reproducible local test target, serve `examples/demo-site`. It is a fictional app made for testing the capture workflow. The documentation screenshot shows actual REA captures of that demo, not an external product audit.
+For a reproducible local test target, serve `examples/demo-site`. It is a fictional app made for testing the capture workflow. The documentation screenshot shows actual browser captures of that fictional demo.
 
 ## Quick start
 
@@ -137,7 +137,15 @@ Open the returned inspection URL. After approval, call `get_session_result` with
 
 ## Evidence and data investigations
 
-Use screenshot investigations for app/website analysis and `create_handoff_session` for SQL transformations. They share the authenticated local daemon and human approval lifecycle. The older [SQL REA example](examples/rea_app_audit.py) demonstrates evidence-linked tabular analysis; screenshot investigations need no DuckDB execution.
+Investigations open in **Both** view: captured screen journeys above, an executable SQL DAG and bounded results below, and evidence-linked findings alongside. Switch to Screens or Data flow for more space. The interface uses the Starchy Gooey system: neutral drafting ground, Geist typography, glass navigation and fluid selection controls.
+
+Every investigation includes a default DuckDB analysis of its actual findings: captured findings → findings by screen / needs human review. Selecting a screen scopes the sampled results; selecting a linked table row returns to its screenshot. “All screens” broadens the sample view. Samples stay capped at 50 rows, so a missing sampled row does not establish absence from the full result.
+
+Edit SQL and recompute to inspect a different question. Confirming or disputing a finding updates the source tables and reruns the DAG; approval waits for computation to complete. Exports include the reviewed report, queries, previews and Arrow files. Review approval does not execute production changes.
+
+`create_investigation_session` accepts optional `analysis_pipeline` (a PipelineSpec), `analysis_links` (screen/node/finding associations), and `include_analysis` (default true). Queries can read `audit_findings`, `audit_screens`, `audit_connections` and upstream node IDs. Custom pipelines cannot read external files. Pass `include_analysis: false` for an evidence-only session. Use `create_handoff_session` for standalone SQL transformations.
+
+The timeline reveals steps from the current execution. It does not retain previous query executions or provide persisted time travel.
 
 ## Development
 

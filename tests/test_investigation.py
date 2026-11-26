@@ -151,6 +151,17 @@ def test_rea_native_and_web_formats(screenshot):
     assert len(rea_images(web)[1]) == 1
 
 
+def await_ready(sid, token):
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        state = tools.get_session_result(sid, token)
+        if state["state"] != "running":
+            assert state["state"] == "ready", state.get("error")
+            return state
+        time.sleep(0.01)
+    pytest.fail("Analysis did not complete")
+
+
 def test_investigation_review_and_export(screenshot, service):
     result = tools.create_investigation_session(
         title="Review",
@@ -169,7 +180,7 @@ def test_investigation_review_and_export(screenshot, service):
         ],
     )
     sid, token = result["session_id"], result["token"]
-    state = tools.get_session_result(sid, token)
+    state = await_ready(sid, token)
     assert state["kind"] == "investigation"
     assert state["investigation"]["findings"][0]["review"] == "unreviewed"
     assert state["investigation"]["findings"][0]["reviewer_note"] == ""
@@ -215,6 +226,11 @@ def test_investigation_review_and_export(screenshot, service):
             ).status_code
             == 409
         )
+        recomputed = await_ready(sid, token)
+        nodes = {n["id"]: n for n in recomputed["investigation"]["analysis"]["nodes"]}
+        assert nodes["review_queue"]["preview"]["total_rows"] == 1
+        assert nodes["findings"]["preview"]["sample_data"][0]["review"] == "disputed"
+        assert nodes["screen_summary"]["preview"]["sample_data"][0]["disputed"] == 1
         assert client.post(
             f"/api/session/{sid}/approve", headers=headers, json={"revision": 1}
         ).json()["approved"]
@@ -238,6 +254,8 @@ def test_investigation_review_and_export(screenshot, service):
             assert "Needs another capture" in archive.read("report.md").decode()
             assert f"screenshots/{image_id}.webp" in archive.namelist()
             assert token.encode() not in archive.read("report.json")
+            assert "analysis/findings.arrow" in archive.namelist()
+            assert report["investigation"]["analysis"]["status"] == "approved"
         service.sessions[sid].expires = time.monotonic() - 1
         assert (
             client.get(
@@ -257,3 +275,105 @@ def test_reference_validation(screenshot):
             ],
             connections=[{"source": "home", "target": "missing"}],
         )
+
+
+def test_combined_query_edit_recovery_and_empty_evidence(screenshot, service):
+    result = tools.create_investigation_session(
+        title="Empty evidence analysis",
+        target="Fixture",
+        screens=[{"id": "home", "title": "Home", "screenshot_path": str(screenshot)}],
+    )
+    sid, token = result["session_id"], result["token"]
+    state = await_ready(sid, token)
+    nodes = {n["id"]: n for n in state["investigation"]["analysis"]["nodes"]}
+    assert nodes["findings"]["preview"]["total_rows"] == 0
+    assert nodes["screen_summary"]["preview"]["sample_data"][0]["findings"] == 0
+    headers = {"Authorization": f"Bearer {token}"}
+    with httpx.Client(base_url=f"http://127.0.0.1:{service.port}") as client:
+        path = f"/api/session/{sid}"
+        denied = client.post(
+            path + "/edit",
+            headers=headers,
+            json={
+                "revision": 0,
+                "node_id": "findings",
+                "sql_or_expr": "SELECT * FROM read_csv('/etc/passwd')",
+            },
+        )
+        assert denied.status_code == 200
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            state = tools.get_session_result(sid, token)
+            if state["state"] != "running":
+                break
+            time.sleep(0.01)
+        assert state["state"] == "error"
+        assert (
+            client.post(
+                path + "/approve", headers=headers, json={"revision": 1}
+            ).status_code
+            == 409
+        )
+        fixed = client.post(
+            path + "/edit",
+            headers=headers,
+            json={
+                "revision": 1,
+                "node_id": "findings",
+                "sql_or_expr": "SELECT * FROM audit_findings",
+            },
+        )
+        assert fixed.status_code == 200
+        state = await_ready(sid, token)
+        assert state["revision"] == 2
+        assert state["error"] is None
+
+
+def test_evidence_only_still_supported(screenshot, service):
+    result = tools.create_investigation_session(
+        title="Evidence",
+        target="Fixture",
+        include_analysis=False,
+        screens=[{"id": "home", "title": "Home", "screenshot_path": str(screenshot)}],
+    )
+    state = tools.get_session_result(result["session_id"], result["token"])
+    assert state["state"] == "ready"
+    assert state["investigation"]["analysis"] is None
+
+
+def test_custom_analysis_links_and_reserved_sources(screenshot, service):
+    kwargs = dict(
+        title="Custom analysis",
+        target="Fixture",
+        screens=[{"id": "home", "title": "Home", "screenshot_path": str(screenshot)}],
+    )
+    pipeline = {
+        "title": "Count screens",
+        "nodes": [
+            {
+                "id": "summary",
+                "title": "Screens",
+                "operation_type": "load",
+                "sql_or_expr": "SELECT count(*) AS screens FROM audit_screens",
+            }
+        ],
+        "edges": [],
+    }
+    result = tools.create_investigation_session(
+        **kwargs,
+        analysis_pipeline=pipeline,
+        analysis_links=[{"screen_id": "home", "node_id": "summary"}],
+    )
+    state = await_ready(result["session_id"], result["token"])
+    assert state["investigation"]["analysis"]["nodes"][0]["preview"]["sample_data"] == [
+        {"screens": 1}
+    ]
+    with pytest.raises(ValidationError, match="existing screens"):
+        tools.create_investigation_session(
+            **kwargs,
+            analysis_pipeline=pipeline,
+            analysis_links=[{"screen_id": "missing", "node_id": "summary"}],
+        )
+    pipeline["nodes"][0]["id"] = "audit_screens"
+    with pytest.raises(ValidationError, match="shadow"):
+        tools.create_investigation_session(**kwargs, analysis_pipeline=pipeline)

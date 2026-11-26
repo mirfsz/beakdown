@@ -82,6 +82,12 @@ export type InvestigationSession = {
       evidence_ids: string[];
     }[];
     limitations: string[];
+    analysis?: Session["pipeline"] | null;
+    analysis_links: {
+      screen_id: string;
+      node_id: string;
+      finding_ids: string[];
+    }[];
     status: string;
   };
 };

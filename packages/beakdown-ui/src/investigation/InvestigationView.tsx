@@ -19,7 +19,17 @@ import type {
   InvestigationSession,
   Screen,
 } from "../types";
+import AnalysisPanel from "../analysis/AnalysisPanel";
+import {
+  ArrowLeft,
+  ArrowRight,
+  ArrowUpRight,
+  PanelsTopLeft,
+  GitBranch,
+  Columns2,
+} from "lucide-react";
 import "./investigation.css";
+import "./starchy.css";
 
 type Props = {
   session: InvestigationSession;
@@ -117,6 +127,8 @@ function ScreenCanvas({
   const width = useStore((s) => s.width),
     height = useStore((s) => s.height),
     initialized = useNodesInitialized();
+  const measuredHeight = useStore(s => s.nodeLookup.get(selected)?.measured.height ?? 0);
+  const measuredWidth = useStore(s => s.nodeLookup.get(selected)?.measured.width ?? 0);
   const mappedNodes = useMemo(
     () =>
       screens.map((screen, i) => ({
@@ -161,13 +173,11 @@ function ScreenCanvas({
     if (initialized && width && height)
       flow.fitView({
         nodes: overview ? undefined : [{ id: selected }],
-        duration: window.matchMedia("(prefers-reduced-motion: reduce)").matches
-          ? 0
-          : 280,
+        duration: 0,
         padding: 0.2,
         maxZoom: 0.95,
       });
-  }, [selected, width, height, initialized, overview]);
+  }, [selected, width, height, measuredHeight, measuredWidth, initialized, overview]);
   return (
     <ReactFlow
       nodes={nodes}
@@ -354,6 +364,7 @@ export default function InvestigationView({
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showOverview, setShowOverview] = useState(false);
+  const [mode, setMode] = useState<"evidence" | "both" | "pipeline">("both");
   const [exporting, setExporting] = useState(false);
   const imageIds = report.screens.map((s) => s.image_id).join(",");
   useEffect(() => {
@@ -401,7 +412,8 @@ export default function InvestigationView({
     inferred: report.findings.filter((f) => f.confidence === "inferred").length,
     unknown: report.findings.filter((f) => f.confidence === "unknown").length,
   };
-  const disabled = busy || report.status !== "pending_approval";
+  const disabled =
+    busy || session.state !== "ready" || report.status !== "pending_approval";
   async function exportReport() {
     setExporting(true);
     try {
@@ -422,7 +434,21 @@ export default function InvestigationView({
     }
   }
   return (
-    <div className="investigation-app">
+    <div
+      className={`investigation-app mode-${report.analysis ? mode : "evidence"}`}
+    >
+      <svg className="material-filters" aria-hidden="true">
+        <defs>
+          <filter id="gooey-switch">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
+            <feColorMatrix
+              in="blur"
+              mode="matrix"
+              values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 20 -8"
+            />
+          </filter>
+        </defs>
+      </svg>
       <header className="investigation-header">
         <a
           className="investigation-brand"
@@ -450,7 +476,11 @@ export default function InvestigationView({
         </div>
         <span className={`report-status ${report.status}`}>
           {report.status === "pending_approval"
-            ? "Ready for review"
+            ? session.state === "running"
+              ? "Computing analysis…"
+              : session.state === "error"
+                ? "Analysis needs attention"
+                : "Ready for review"
             : report.status === "approved"
               ? "Review approved"
               : "Review rejected"}
@@ -467,6 +497,47 @@ export default function InvestigationView({
         <div className="investigation-error" role="alert">
           {error || assetError}
         </div>
+      )}
+      {report.analysis && (
+        <nav className="workspace-switcher" aria-label="Workspace view">
+          <span className="workspace-instruction">
+            Evidence and execution, connected.
+          </span>
+          <div
+            className="gooey-switch"
+            style={
+              {
+                "--active-index": ["evidence", "both", "pipeline"].indexOf(
+                  mode,
+                ),
+              } as React.CSSProperties
+            }
+          >
+            <span className="gooey-track" aria-hidden="true">
+              <span />
+              <i />
+            </span>
+            {(
+              [
+                ["evidence", "Screens", PanelsTopLeft],
+                ["both", "Both", Columns2],
+                ["pipeline", "Data flow", GitBranch],
+              ] as const
+            ).map(([value, label, Icon]) => (
+              <button
+                key={value}
+                aria-pressed={mode === value}
+                onClick={() => setMode(value)}
+              >
+                <Icon size={14} />
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="workspace-revision">
+            Revision {session.revision}
+          </span>
+        </nav>
       )}
       <div className="investigation-workspace">
         <aside className="screen-sidebar" aria-label="Captured screens">
@@ -525,81 +596,98 @@ export default function InvestigationView({
             </p>
           </div>
         </aside>
-        <section className="investigation-stage" aria-label="Screenshot canvas">
-          <div className="stage-toolbar">
-            <div>
-              <span className="stage-label">Application map</span>
-              <span className="stage-count">
-                {report.screens.length} screens / {report.connections.length}{" "}
-                connections
+        <div className="connected-stage">
+          <section
+            className="investigation-stage"
+            aria-label="Screenshot canvas"
+          >
+            <div className="stage-toolbar">
+              <div>
+                <span className="stage-label">Screen evidence</span>
+                <span className="stage-count">
+                  {report.screens.length} screens / {report.connections.length}{" "}
+                  connections
+                </span>
+              </div>
+              <div className="stage-actions">
+                <button onClick={() => setShowOverview(true)}>
+                  Fit all screens
+                </button>
+                <button onClick={() => setExpanded(screen.id)}>
+                  Inspect screenshot
+                </button>
+              </div>
+            </div>
+            <div className="screenshot-canvas">
+              <ReactFlowProvider>
+                <ScreenCanvas
+                  screens={report.screens}
+                  findings={report.findings}
+                  connections={report.connections}
+                  images={images}
+                  selected={selected}
+                  overview={showOverview}
+                  onSelect={(s) => {
+                    setSelected(s);
+                    setShowOverview(false);
+                  }}
+                  onOpen={setExpanded}
+                />
+              </ReactFlowProvider>
+            </div>
+            <div className="journey-scrubber">
+              <button
+                aria-label="Previous screen"
+                disabled={index === 0}
+                onClick={() => {
+                  setSelected(report.screens[index - 1].id);
+                  setShowOverview(false);
+                }}
+              >
+                <ArrowLeft size={14} />
+              </button>
+              <label>
+                Journey
+                <input
+                  type="range"
+                  aria-label="Screen journey"
+                  min={0}
+                  max={report.screens.length - 1}
+                  value={index}
+                  onChange={(e) => {
+                    setSelected(report.screens[Number(e.target.value)].id);
+                    setShowOverview(false);
+                  }}
+                />
+              </label>
+              <span>
+                {index + 1} of {report.screens.length}
               </span>
-            </div>
-            <div className="stage-actions">
-              <button onClick={() => setShowOverview(true)}>
-                Fit all screens
-              </button>
-              <button onClick={() => setExpanded(screen.id)}>
-                Inspect screenshot
-              </button>
-            </div>
-          </div>
-          <div className="screenshot-canvas">
-            <ReactFlowProvider>
-              <ScreenCanvas
-                screens={report.screens}
-                findings={report.findings}
-                connections={report.connections}
-                images={images}
-                selected={selected}
-                overview={showOverview}
-                onSelect={(s) => {
-                  setSelected(s);
+              <button
+                aria-label="Next screen"
+                disabled={index === report.screens.length - 1}
+                onClick={() => {
+                  setSelected(report.screens[index + 1].id);
                   setShowOverview(false);
                 }}
-                onOpen={setExpanded}
-              />
-            </ReactFlowProvider>
-          </div>
-          <div className="journey-scrubber">
-            <button
-              aria-label="Previous screen"
-              disabled={index === 0}
-              onClick={() => {
-                setSelected(report.screens[index - 1].id);
+              >
+                <ArrowRight size={14} />
+              </button>
+            </div>
+          </section>
+          {report.analysis && mode !== "evidence" && (
+            <AnalysisPanel
+              session={session}
+              screenId={selected}
+              busy={busy}
+              action={action}
+              onScreen={(id) => {
+                setSelected(id);
                 setShowOverview(false);
               }}
-            >
-              ←
-            </button>
-            <label>
-              Journey
-              <input
-                type="range"
-                aria-label="Screen journey"
-                min={0}
-                max={report.screens.length - 1}
-                value={index}
-                onChange={(e) => {
-                  setSelected(report.screens[Number(e.target.value)].id);
-                  setShowOverview(false);
-                }}
-              />
-            </label>
-            <span>
-              {index + 1} of {report.screens.length}
-            </span>
-            <button
-              aria-label="Next screen"
-              disabled={index === report.screens.length - 1}
-              onClick={() => {
-                setSelected(report.screens[index + 1].id);
-                setShowOverview(false);
-              }}
-            >
-              →
-            </button>
-          </div>
-        </section>
+            />
+          )}
+        </div>
         <aside
           className="findings-inspector"
           aria-label="Investigation findings"
@@ -607,7 +695,6 @@ export default function InvestigationView({
           {showOverview ? (
             <>
               <div className="inspector-heading">
-                <span className="panel-kicker">Investigation</span>
                 <h2>What we learned</h2>
               </div>
               <p className="investigation-summary">
@@ -661,9 +748,6 @@ export default function InvestigationView({
           ) : (
             <>
               <div className="inspector-heading">
-                <span className="panel-kicker">
-                  Screen {String(index + 1).padStart(2, "0")}
-                </span>
                 <h2>{screen.title}</h2>
                 <p>{screen.description}</p>
               </div>
@@ -787,7 +871,7 @@ export default function InvestigationView({
               disabled={disabled}
               onClick={() => action("approve", { revision: session.revision })}
             >
-              Approve review <span aria-hidden="true">↗</span>
+              Approve review <ArrowUpRight size={16} />
             </button>
           </>
         ) : (

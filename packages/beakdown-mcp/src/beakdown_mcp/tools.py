@@ -58,6 +58,9 @@ def create_investigation_session(
     connections: list[dict] | None = None,
     summary: str = "",
     limitations: list[str] | None = None,
+    analysis_pipeline: dict | None = None,
+    analysis_links: list[dict] | None = None,
+    include_analysis: bool = True,
 ) -> dict:
     """Present an application/website investigation as a screenshot evidence canvas.
 
@@ -69,8 +72,11 @@ def create_investigation_session(
     optional category, evidence_ids and region {x,y,width,height} normalized to 0..1.
     Connections have source/target/label/confidence/evidence_ids. No remote fetching,
     app control or HTML execution occurs here; the Beakdown skill orchestrates REA.
+    Analysis is included by default: executable SQL over audit_findings, audit_screens
+    and audit_connections, built from this report. Supply analysis_pipeline and
+    analysis_links to customize it, or include_analysis=false for evidence only.
     """
-    from beakdown_core.investigation import Investigation, load_screens
+    from beakdown_core.investigation import AnalysisLink, Investigation, load_screens
 
     if not 1 <= len(screens) <= 50:
         raise ValueError("An investigation requires 1–50 screens")
@@ -89,6 +95,29 @@ def create_investigation_session(
         connections=connections or [],
         limitations=limitations or [],
     )
+    if include_analysis:
+        from beakdown_core.analysis import default_analysis
+        from beakdown_core.models import PipelineSpec
+
+        if analysis_pipeline is not None:
+            pipeline = PipelineSpec.model_validate(
+                {
+                    **analysis_pipeline,
+                    "pipeline_id": investigation.investigation_id + "_analysis",
+                    "status": "pending_approval",
+                }
+            )
+            for node in pipeline.nodes:
+                node.preview = None
+            investigation.analysis = pipeline
+            investigation.analysis_links = [
+                AnalysisLink.model_validate(link) for link in analysis_links or []
+            ]
+        else:
+            investigation.analysis, investigation.analysis_links = default_analysis(
+                investigation
+            )
+        investigation = Investigation.model_validate(investigation.model_dump())
     result = manager().create_investigation(investigation, assets)
     result["message"] = (
         f"Inspect the screenshot canvas: {result['url']} . Review findings, export the report, and return here when ready."
