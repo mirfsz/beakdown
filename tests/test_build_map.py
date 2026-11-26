@@ -293,3 +293,22 @@ def test_rule_change_recomputes_attached_analysis(staged):
     assert state["investigation"]["analysis"]["nodes"][0]["preview"]["sample_data"] == [
         {"status": "stale"}
     ]
+
+
+def test_build_analysis_cannot_shadow_case_insensitive_input_names(staged):
+    args, _ = staged
+    args["include_analysis"] = True
+    args["analysis_pipeline"] = {
+        "title": "Invalid input alias",
+        "nodes": [
+            {
+                "id": "AUDIT_RULES",
+                "title": "Shadow",
+                "operation_type": "load",
+                "sql_or_expr": "SELECT 1 AS value",
+            }
+        ],
+        "edges": [],
+    }
+    with pytest.raises(ValidationError, match="shadow"):
+        create(args)

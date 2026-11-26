@@ -127,7 +127,7 @@ class Investigation(BaseModel):
                 "Analysis links must reference existing screens, nodes and findings"
             )
         if self.analysis and any(
-            n.id
+            n.id.lower()
             in {
                 "audit_findings",
                 "audit_screens",
