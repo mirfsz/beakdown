@@ -1,47 +1,126 @@
-# 🦅 Beakdown
+# Beakdown
 
-**A visual map of your app’s pages, rules, implementation and verification—plus a review canvas for agent data pipelines.**
+Review your AI's work with screenshots and evidence you can check.
 
-Give agent work a human checkpoint. Stage a SQL DAG, inspect bounded table previews, scrub through execution steps, edit queries, and approve the exact reviewed plan before the agent proceeds.
-
-Pair Beakdown with **REA** to break down an app or website into captured screens, connected journeys, annotated findings and evidence. The Beakdown skill guides the agent through capture and opens a browser workbench where you can inspect, confirm, dispute and export the findings.
+When an AI agent reviews your website or prepares changes to your data, you need a way to check its work. Beakdown gives you a browser workspace with screenshots, findings and results you can inspect. You can correct a finding, request a change, and send your feedback to the agent.
 
 ![Beakdown screenshot investigation](docs/investigation.png)
 
-## See what your app is built to do
+## What would I use it for?
 
-Ask your coding agent: **“Use Beakdown with REA to map this app’s pages, their requirements, the code that implements them, and the evidence from your checks.”**
+| You want to... | Beakdown helps you... |
+| --- | --- |
+| Understand a website or app | Follow captured screens and see what the agent learned about each one. |
+| Check whether a feature works as intended | Review the expected behavior, linked code and reported checks together. |
+| Explain what needs changing | Add corrections and change requests beside the relevant finding or rule. |
+| Review a data task before the agent continues | Inspect each step and sample results, adjust a query, and approve the reviewed plan. |
 
-Select a page, then follow **Intent → Code → Checks**. A shared rule can span several pages. Code references show repository-relative files, exact line ranges and bounded source snapshots. Checks distinguish reported passes, failures, blocked/untested behavior and stale results. Requirements, observed behavior and inferred rules remain separate.
+You can review screenshots and describe the behavior you want without reading code. Installation, source-code inspection and SQL editing need technical knowledge. Once the tools are configured, your agent prepares the review and gives you a link to open.
 
-Edit a rule to request a change. Beakdown records your intent, shows the declared affected pages/code/checks and marks earlier results stale. Copy the change request back to your agent, which implements and tests it in your app. Refresh source rechecks declared local files; approval also checks for changed source and refuses an outdated revision. Export includes the map, source excerpts, check evidence references and your corrections.
+## How a review works
+
+1. **Ask your agent to look at something.** For example: "Use Beakdown with REA to review this website. Capture the main screens and explain how someone moves through them."
+2. **Open the review link.** The agent gathers the evidence and arranges it in Beakdown. REA is the separate tool that captures the app or website.
+3. **Check the findings against the screenshots.** See what the agent observed, what it inferred, and what it still cannot answer.
+4. **Leave your feedback.** Confirm a finding, dispute it, or write a correction. If the review includes app rules, you can edit the required behavior and request a change.
+5. **Return to your agent.** Use the copied handoff prompt to have it retrieve your feedback. The agent handles any implementation and testing separately.
+
+You can approve the report or request another pass. Approval records your assessment of that report. Known failures, disputed findings and your notes remain part of the result; approving does not deploy changes or establish that every conclusion is correct.
+
+## Example: the app says it saved, but forgets your change
+
+The included demo has a workspace-name setting. It shows save feedback, but the new name disappears when you reload the page.
+
+The example script captures the demo and runs browser checks. It records three passes and the failed save-and-reload check, then prepares a review linking the page, expected behavior, source code and results. You can inspect what happened and request a change to the save behavior.
 
 ![Page, rule, implementation and check review](docs/build-map.png)
 
-**Try an actual example:** the fictional demo shows save feedback, but its workspace name is lost on reload. The capture script runs real browser checks, records three passes and that failed persistence criterion, and prepares a build map:
+In an app review, select a page and follow **Intent → Code → Checks**:
+
+- **Intent:** what the feature should do, with requirements kept separate from observations and inferred rules.
+- **Code:** the files and source excerpts the agent linked to that behavior.
+- **Checks:** what the agent reports passed, failed, could not be tested, or needs checking again.
+
+When you change a rule, Beakdown marks earlier checks as out of date. It shows the linked pages, code and checks so the agent can see what needs another look. Source refresh rechecks the declared local files, and approval checks for source changes too.
+
+The agent supplies these relationships and check results. Beakdown validates the links and manages the review; it does not discover every dependency, run your app's tests, or independently prove that an agent's reported pass is correct.
+
+<details>
+<summary>Run the demo locally</summary>
+
+After installation, run:
 
 ```sh
 uv run --with playwright python examples/build_map_demo.py --output /absolute/folder/outside-the-repo
 uv run beakdown-review /absolute/folder/outside-the-repo/investigation.json
 ```
 
-This requires Chrome; use `BEAKDOWN_BROWSER=chromium` with Playwright Chromium installed for another environment. The example’s acceptance criteria are explicitly fictional, and its outcomes are actual browser observations.
+This requires Chrome. To use Playwright Chromium instead, install it and set `BEAKDOWN_BROWSER=chromium`. The demo is fictional; the screenshots and browser-check outcomes come from actual runs against it.
 
-The agent gathers and declares the relationships using source inspection and REA. Beakdown validates links, snapshots granted source and manages review; it does not automatically discover every dependency, independently certify a test outcome, execute check commands or edit your app. The impact view follows the supplied links. Approval acknowledges the report, including known failures; it is not a release certification. [Build-map input and lifecycle](docs/build-map-contract.md).
+</details>
 
-## Break down an app or website
+## Screenshots and data in the same review
 
-1. Install [the Beakdown skill](skills/beakdown/SKILL.md) in your agent's skill directory and configure REA and Beakdown as MCP servers.
-2. Ask: **“Use Beakdown with REA to break down this website: https://your-site.example. Capture its key screens and explain the main journey.”**
-3. The agent uses REA to collect screenshots and supporting evidence, then calls `create_investigation_session`.
-4. Open the returned canvas. Select screens, enlarge captures, inspect numbered regions, filter observations/inferences/unknowns, and confirm or dispute findings with corrections.
-5. Approve the report or request another pass. The agent retrieves the reviewed findings with `get_session_result`.
+A website review can show captured screens alongside a data view of its findings. Selecting a screen narrows the displayed sample; selecting a linked result row takes you back to its screenshot. Choose Screens, Data flow or Both depending on what you need to inspect.
 
-REA performs the capture; the skill orchestrates the tool calls. Beakdown imports and presents evidence. This is a working agent-guided workflow, not an unattended crawler or a promise to recover every application's implementation. The skill ships in this repository; installing it does not register MCP servers.
+The default analysis groups the report's findings by screen and shows which need human review. Technical users can edit the SQL to ask a different question. Confirming or disputing a finding updates the analysis, and approval waits for computation to finish.
 
-### Screenshot investigation input
+For a separate data task, the agent can prepare a sequence of read-only SQL steps. You can inspect the tables, change a query and review the new results before approving. Queries run locally in DuckDB. Beakdown does not make production changes.
 
-After the quick-start installation below, call `create_investigation_session` with:
+## Before you rely on a review
+
+- **Capture coverage matters.** A review describes the screens and states the agent inspected. A screenshot alone cannot establish what happens in a backend, whether permissions work, or whether a saved value survives a reload.
+- **Tables show samples.** Previews contain up to 50 rows. A row missing from the preview may still exist in the full result.
+- **Save your report before leaving.** Sessions expire after one hour and end when the MCP process stops. Export downloads a ZIP containing the report and evidence. Reopening that ZIP in the canvas is not supported yet.
+- **The timeline shows the current run.** It lets you inspect the ordered steps, but does not retain previous executions.
+
+Exported investigations include reviewed findings, corrections and normalized screenshots. App reviews also include source excerpts and check references; data analysis adds queries, previews and Arrow files. Session credentials are excluded. Review exported material before sharing it, since screenshots and source excerpts can contain private information.
+
+## Install and connect your agent
+
+Setup requires Python 3.11+, uv, Node 20.19+ and pnpm 10. If you only need to review the results, someone who manages your agent setup can handle this part.
+
+```sh
+uv sync
+pnpm install
+pnpm build
+uv run beakdown-mcp
+```
+
+MCP is the connection that lets your AI agent call Beakdown's tools. Add this server configuration to your agent, replacing the path with the location of your Beakdown checkout:
+
+```json
+{
+  "mcpServers": {
+    "beakdown": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/beakdown",
+        "run",
+        "beakdown-mcp"
+      ]
+    }
+  }
+}
+```
+
+For website and app capture, configure REA as well. Install [the Beakdown skill](skills/beakdown/SKILL.md) in your agent's skill directory so it knows how to gather evidence and prepare the review. For Codex, copy `skills/beakdown` to `~/.agents/skills/beakdown`. Reconnect or restart your agent if needed. Installing the skill does not register either MCP server.
+
+Once connected, ask:
+
+> Use Beakdown with REA to review this website: https://your-site.example. Capture its main screens, explain the journey, and show me the findings with their evidence.
+
+For an app you are building, ask:
+
+> Use Beakdown with REA to show what this app's pages should do, where that behavior is implemented, and what the checks found. Highlight failures and anything that still needs checking.
+
+## Technical reference
+
+<details>
+<summary>Prepare a screenshot investigation</summary>
+
+After capturing evidence, the agent calls `create_investigation_session`. This example shows the input structure; replace the paths and findings with actual captured evidence:
 
 ```json
 {
@@ -75,52 +154,28 @@ After the quick-start installation below, call `create_investigation_session` wi
 }
 ```
 
-A screen accepts exactly one absolute `rea_evidence_path` or `screenshot_path`. Supported REA formats: web screenshot Evidence, browser/Electron scenarios, and native UI scenarios. Raw records, MCP JSON envelopes, and exported bundles are accepted. Select bundle records using `rea_evidence_id`; `capture_index` counts captured screenshots, defaulting to the last capture. Other providers can import their local PNG/JPEG/WebP screenshot files. No target HTML or scripts execute in the workbench.
+Each screen takes exactly one absolute `rea_evidence_path` or `screenshot_path`. Beakdown accepts REA web screenshots, browser/Electron scenarios and native UI scenarios, as raw records, MCP JSON envelopes or exported bundles. Use `rea_evidence_id` to select a bundle record. `capture_index` selects a captured screenshot and defaults to the last one.
 
-For an agent without the new MCP tool loaded yet, save those arguments as an absolute JSON manifest and run:
+Other capture tools can provide local PNG, JPEG or WebP screenshots. Beakdown displays imported evidence; it does not fetch the target or execute its HTML and scripts.
+
+If the MCP tool is not loaded in your agent yet, save the input as a JSON manifest and run:
 
 ```sh
 uv run beakdown-review /absolute/path/to/investigation.json
 ```
 
-This starts the local daemon, opens the canvas in your browser, and stays alive until Ctrl+C. Add `--no-open` to print the URL only. To install the skill for a compatible agent, copy `skills/beakdown` to its documented skill directory (for Codex, `~/.agents/skills/beakdown`); reconnect/restart if the client requires it.
+The command starts the local server, opens the canvas and stays alive until Ctrl+C. Add `--no-open` to print the URL without opening a browser. A saved input manifest can create another session, but does not preserve later review changes unless they are included in that input.
 
-Screenshots are authenticated, validated and normalized to inert WebP. Complete evidence JSON imports are capped at 24 MB per file. Input limits are 8 MB and 20 megapixels per screenshot, 32 MB of normalized images per session, 50 screens and 300 findings. REA-provided image digests are verified; source IDs, operation, provider and capture limitations remain visible. Export report downloads a ZIP with Markdown, JSON and normalized screenshots, excluding session credentials. The export preserves the review; reopening exported ZIPs in the canvas is not implemented yet. Sessions still expire after one hour.
+Screenshots are validated and converted to WebP. REA-provided image digests are checked, and provenance and capture limitations remain visible. Limits are 24 MB per complete evidence JSON file; 8 MB and 20 megapixels per input screenshot; 32 MB of normalized images, 50 screens and 300 findings per session.
 
-Approval records the human's assessment. Disputed findings and reviewer notes are returned even when the overall report is approved; approval does not establish that every inference is true. Screenshots and source metadata may contain private content: keep evidence out of public repositories unless deliberately sharing it.
+For linked app rules, source snapshots and check freshness, see the [build-map input and lifecycle](docs/build-map-contract.md).
 
-For a reproducible local test target, serve `examples/demo-site`. It is a fictional app made for testing the capture workflow. The documentation screenshot shows actual browser captures of that fictional demo.
+</details>
 
-## Quick start
+<details>
+<summary>Prepare a data pipeline for review</summary>
 
-Requires Python 3.11+, uv, Node 20.19+ and pnpm 10.
-
-```sh
-uv sync
-pnpm install
-pnpm build
-uv run beakdown-mcp
-```
-
-The MCP server uses stdio. Configure your agent with:
-
-```json
-{
-  "mcpServers": {
-    "beakdown": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/absolute/path/to/beakdown",
-        "run",
-        "beakdown-mcp"
-      ]
-    }
-  }
-}
-```
-
-Call `create_handoff_session`:
+Call `create_handoff_session` with the steps and their connections:
 
 ```json
 {
@@ -143,30 +198,35 @@ Call `create_handoff_session`:
 }
 ```
 
-Open the returned inspection URL. After approval, call `get_session_result` with the returned `session_id` and `token`. Only proceed if `approved` is true, using the returned pipeline. “Approve & Commit” commits the approval decision; the agent separately executes production changes.
+Open the returned inspection URL. After the human reviews it, call `get_session_result` with the returned `session_id` and `token`. Only proceed if `approved` is true, using the returned pipeline. "Approve & Commit" records the approval decision; the agent executes any production changes separately.
 
-## Execution contract
+Steps run in dependency order. SQL can refer to upstream tables by node ID; a filter takes one parent and a SQL predicate. Only a single DuckDB SELECT is accepted. Python expressions, exec, extensions, network access and production writes are not supported. Reading local data files requires their exact absolute paths in `allowed_paths` when creating the session; this explicitly grants read access.
 
-- Nodes run in topological order. Queries reference upstream tables by node ID; filter nodes take one parent and a SQL predicate.
-- Only a single DuckDB SELECT is accepted. No Python expressions, exec, extensions, network access, or production writes.
-- Local data files require exact absolute paths in `allowed_paths` at session creation. Treat this as an explicit read grant.
-- Each node returns schema, full-table null counts, up to 50 sample rows, and Arrow IPC. Combined preview JSON and Arrow must remain below 100,000 bytes; large samples shrink and oversized schemas fail.
-- The engine materializes intermediate tables under a 256 MB DuckDB limit. This preview budget is a browser transport limit, not a total process-memory guarantee. No query timeout or OS sandbox is provided yet.
-- The loopback daemon binds an OS-assigned port. Credentials live in the URL fragment and Authorization headers. The UI removes the fragment from the address bar after reading it. API responses are not cached; cross-origin requests and unexpected Host headers are rejected.
-- Sessions are in-memory, expire after one hour, and end with the MCP process. Capacity is 32 sessions; work uses two background threads. Creation queues execution without waiting for previews; first daemon startup has no strict 50 ms guarantee.
-- Edits recompute the full DAG. Revision checks prevent stale approvals. The timeline reveals ordered node results from the current execution; persisted execution history is not implemented.
+Each step returns schema, full-table null counts, up to 50 sample rows and Arrow IPC. The combined preview JSON and Arrow must stay below 100,000 bytes. Large samples shrink; oversized schemas fail. DuckDB materializes intermediate tables with a 256 MB memory limit. The preview limit bounds browser transport, not total process memory. There is no query timeout or OS sandbox yet.
 
-## Evidence and data investigations
+</details>
 
-Investigations open in **Both** view: captured screen journeys above, an executable SQL DAG and bounded results below, and evidence-linked findings alongside. Switch to Screens or Data flow for more space. The interface uses the Starchy Gooey system: neutral drafting ground, Geist typography, glass navigation and fluid selection controls.
+<details>
+<summary>Customize investigation analysis</summary>
 
-Every investigation includes a default DuckDB analysis of its actual findings: captured findings → findings by screen / needs human review. Selecting a screen scopes the sampled results; selecting a linked table row returns to its screenshot. “All screens” broadens the sample view. Samples stay capped at 50 rows, so a missing sampled row does not establish absence from the full result.
+`create_investigation_session` accepts an optional `analysis_pipeline` (PipelineSpec), `analysis_links` (screen/node/finding associations), and `include_analysis` (true by default).
 
-Edit SQL and recompute to inspect a different question. Confirming or disputing a finding updates the source tables and reruns the DAG; approval waits for computation to complete. Exports include the reviewed report, queries, previews and Arrow files. Review approval does not execute production changes.
+Queries can read `audit_findings`, `audit_screens`, `audit_connections` and upstream node IDs. Custom investigation pipelines cannot read external files. Set `include_analysis: false` for a review containing only screenshot evidence. Use `create_handoff_session` for standalone SQL transformations.
 
-`create_investigation_session` accepts optional `analysis_pipeline` (a PipelineSpec), `analysis_links` (screen/node/finding associations), and `include_analysis` (default true). Queries can read `audit_findings`, `audit_screens`, `audit_connections` and upstream node IDs. Custom pipelines cannot read external files. Pass `include_analysis: false` for an evidence-only session. Use `create_handoff_session` for standalone SQL transformations.
+Selecting "All screens" broadens the displayed sample. Samples remain capped at 50 rows. Editing SQL recomputes the full pipeline; the timeline shows the current execution only.
 
-The timeline reveals steps from the current execution. It does not retain previous query executions or provide persisted time travel.
+</details>
+
+<details>
+<summary>Local server, sessions and approval</summary>
+
+The local server binds to an OS-assigned port on the loopback interface. Credentials travel in the URL fragment and Authorization headers. The UI removes the fragment from the address bar after reading it. API responses are not cached; cross-origin requests and unexpected Host headers are rejected.
+
+Sessions live in memory for one hour and end with the MCP process. Capacity is 32 sessions, with two background threads for work. Creation queues execution without waiting for previews; initial startup has no strict 50 ms guarantee.
+
+Edits recompute the full pipeline. Revision checks prevent approval of an outdated revision. Historical execution snapshots are not persisted.
+
+</details>
 
 ## Development
 
@@ -179,9 +239,11 @@ uv run --with playwright python tests/browser_smoke.py
 uv run --with playwright python tests/build_map_browser.py
 ```
 
-`pnpm dev` starts an isolated UI development server on a dynamic port. Use the built UI served by the daemon for authenticated end-to-end sessions.
+`pnpm dev` starts a separate UI development server on a dynamic port. For authenticated end-to-end sessions, use the built UI served by the local daemon.
 
-Monorepo packages: `beakdown-core` (schemas, DuckDB, Arrow, FastAPI), `beakdown-ui` (React Flow, Vite, Tailwind), and `beakdown-mcp` (MCP Python SDK v1 stdio and the review CLI). This initial release supports DuckDB SQL; Polars and persistent historical snapshots remain future work.
+The repository has three packages: `beakdown-core` for schemas, DuckDB, Arrow and FastAPI; `beakdown-ui` for the React Flow interface; and `beakdown-mcp` for MCP stdio and the review CLI. This release supports DuckDB SQL. Polars and persistent execution history are not implemented.
+
+For a repeatable capture target, serve `examples/demo-site`. It is a fictional app built to test the review workflow. The documentation screenshots show actual browser captures of that demo.
 
 ## License
 
