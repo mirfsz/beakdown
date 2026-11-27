@@ -142,11 +142,13 @@ function RuleDetail({
   const [description, setDescription] = useState(rule.description);
   const [note, setNote] = useState(rule.reviewer_note);
   const [copied, setCopied] = useState(false);
+  const [copyBlocked, setCopyBlocked] = useState(false);
   useEffect(() => {
     setDescription(rule.description);
     setNote(rule.reviewer_note);
     setEditing(false);
     setCopied(false);
+    setCopyBlocked(false);
   }, [rule.id, rule.revision, rule.reviewer_note]);
   const build = session.investigation.build_map!;
   const sources = build.implementation.filter((s) =>
@@ -160,6 +162,7 @@ function RuleDetail({
       reviewer_note: note,
       ...(change ? { description } : {}),
     });
+  const changeRequest = `Beakdown rule ${rule.id} (revision ${rule.revision}) needs a change. Required behavior: ${rule.description}\nReviewer note: ${rule.reviewer_note}\nAffected pages: ${rule.screen_ids.join(", ")}\nLinked source: ${sources.map((s) => `${s.path}:${s.line_start}`).join(", ")}\nFetch get_session_result for the full reviewed intent, implement the change, rerun affected checks, and create a fresh build map with new evidence. Do not treat stale checks as passing.`;
   return (
     <div className="rule-detail">
       <header className="rule-heading">
@@ -320,12 +323,12 @@ function RuleDetail({
                 className="copy-rule-change"
                 onClick={async () => {
                   try {
-                    await navigator.clipboard.writeText(
-                      `Beakdown rule ${rule.id} (revision ${rule.revision}) needs a change. Required behavior: ${rule.description}\nReviewer note: ${rule.reviewer_note}\nAffected pages: ${rule.screen_ids.join(", ")}\nLinked source: ${sources.map((s) => `${s.path}:${s.line_start}`).join(", ")}\nFetch get_session_result for the full reviewed intent, implement the change, rerun affected checks, and create a fresh build map with new evidence. Do not treat stale checks as passing.`,
-                    );
+                    await navigator.clipboard.writeText(changeRequest);
                     setCopied(true);
+                    setCopyBlocked(false);
                   } catch {
                     setCopied(false);
+                    setCopyBlocked(true);
                   }
                 }}
               >
@@ -333,6 +336,20 @@ function RuleDetail({
                   ? "Change request copied"
                   : "Copy change request for agent"}
               </button>
+            )}
+            {copyBlocked && (
+              <div className="copy-fallback">
+                <p role="status">
+                  Clipboard access is blocked. Select the change request below
+                  and copy it manually.
+                </p>
+                <textarea
+                  aria-label="Change request text"
+                  readOnly
+                  value={changeRequest}
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+              </div>
             )}
           </>
         )}

@@ -520,3 +520,17 @@
     justify-content: start;
   }
 }
+
+.copy-fallback {
+  margin-top: 12px;
+}
+.copy-fallback textarea {
+  min-height: 140px;
+  padding: 10px;
+  border-radius: 8px;
+  border-color: #00000030;
+  font:
+    11px/1.65 "Geist Mono",
+    monospace;
+  resize: vertical;
+}

@@ -30,7 +30,10 @@ def main():
                     else ({} if executable == "chromium" else {"channel": "chrome"})
                 )
                 browser = p.chromium.launch(headless=True, **options)
-                page = browser.new_page(viewport={"width": 1600, "height": 1100})
+                page = browser.new_page(
+                    viewport={"width": 1600, "height": 1100},
+                    permissions=["clipboard-read", "clipboard-write"],
+                )
                 errors = []
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 page.goto(result["url"])
@@ -100,6 +103,19 @@ def main():
                 expect(
                     page.get_by_role("button", name="Change request copied")
                 ).to_be_visible()
+                assert "Persist the workspace name" in page.evaluate(
+                    "navigator.clipboard.readText()"
+                )
+                page.evaluate(
+                    """() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new DOMException('Blocked for test', 'NotAllowedError'); } } })"""
+                )
+                page.get_by_role("button", name="Change request copied").click()
+                fallback = page.get_by_role("textbox", name="Change request text")
+                expect(fallback).to_be_visible()
+                expect(fallback).to_contain_text("Persist the workspace name")
+                fallback.focus()
+                if captures:
+                    page.screenshot(path=str(output / "clipboard-fallback.png"))
                 page.get_by_role("button", name="This page", exact=True).click()
                 page.get_by_role("searchbox", name="Search rules").fill(
                     "nonexistent rule"
